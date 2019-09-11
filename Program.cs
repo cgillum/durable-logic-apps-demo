@@ -20,6 +20,7 @@ namespace LogicAppsTesting
     {
         static async Task Main(string[] args)
         {
+            // These JSON files are the logic apps that we're testing
             string fileName = "01.simple-http.json";
             //string fileName = "03.foreach.json";
             string sample1FilePath = Path.Join(Environment.CurrentDirectory, "Samples", fileName);
@@ -27,13 +28,14 @@ namespace LogicAppsTesting
 
             string sample1JsonText = File.ReadAllText(sample1FilePath);
 
+            // Deserialize the workflow JSON into objects, and then sort those objects into the correct execution order
             WorkflowDocument doc = JsonConvert.DeserializeObject<WorkflowDocument>(sample1JsonText);
-
             IReadOnlyList<WorkflowAction> sortedActions = TopologicalSort.Sort(
                 doc.Definition.Actions.Values,
                 a => a.Dependencies.Select(p => p.Key).ToList(),
                 a => a.Name);
 
+            // Print out the execution order to make sure it looks correct
             Console.WriteLine("Workflow dependency tree:");
             Console.WriteLine("=========================");
             foreach (WorkflowAction action in sortedActions)

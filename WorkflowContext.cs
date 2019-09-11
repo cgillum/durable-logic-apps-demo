@@ -35,6 +35,9 @@ namespace LogicAppsTesting
         }
     }
 
+    // TODO: There is a ton more stuff that needs to be added here:
+    //       https://docs.microsoft.com/en-us/azure/logic-apps/workflow-definition-language-functions-reference
+    //       Even better if we can copy/paste existing Logic Apps code for this.
     static class ExpressionEvaluator
     {
         public static JToken Expand(JToken input, IReadOnlyDictionary<string, JToken> outputs)

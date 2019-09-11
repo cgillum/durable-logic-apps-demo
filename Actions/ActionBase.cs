@@ -10,6 +10,7 @@ using Newtonsoft.Json.Linq;
 
 namespace LogicAppsTesting.Actions
 {
+    // TODO: Move each action into its own file.
     public abstract class ActionBase
     {
         public abstract ValueTask<JToken> ExecuteAsync(JToken input, WorkflowContext context);

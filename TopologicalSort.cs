@@ -5,7 +5,8 @@ using System.Linq;
 namespace LogicAppsTesting
 {
     /// <summary>
-    /// Generic topological sort implementation from https://www.codeproject.com/Articles/869059/Topological-sorting-in-Csharp
+    /// Generic topological sort implementation from https://www.codeproject.com/Articles/869059/Topological-sorting-in-Csharp.
+    /// This is used to help build the workflow graph from the Logic Apps JSON file.
     /// </summary>
     static class TopologicalSort
     {
