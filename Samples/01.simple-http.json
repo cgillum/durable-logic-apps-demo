@@ -1,0 +1,40 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Compose": {
+        "inputs": {
+          "currentDateTimeUtc": "@utcNow()",
+          "someId": "@guid()"
+        },
+        "runAfter": {},
+        "type": "Compose"
+      },
+      "HTTP": {
+        "inputs": {
+          "body": "@outputs('Compose')",
+          "method": "POST",
+          "uri": "https://postb.in/b/1567705401756-3308252566494"
+        },
+        "runAfter": {
+          "Compose": [
+            "Succeeded"
+          ]
+        },
+        "type": "Http"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "parameters": {},
+    "triggers": {
+      "Recurrence": {
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 3
+        },
+        "type": "Recurrence"
+      }
+    }
+  }
+}

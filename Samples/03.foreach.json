@@ -1,0 +1,175 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Compose": {
+        "inputs": [
+          {
+            "firstname": "a",
+            "lastname": "b"
+          },
+          {
+            "firstname": "d",
+            "lastname": "b"
+          },
+          {
+            "firstname": "f",
+            "lastname": "b"
+          },
+          {
+            "firstname": "g",
+            "lastname": "n"
+          },
+          {
+            "firstname": "c",
+            "lastname": "m"
+          },
+          {
+            "firstname": "r",
+            "lastname": "m"
+          },
+          {
+            "firstname": "t",
+            "lastname": "k"
+          }
+        ],
+        "runAfter": {
+          "Initialize_variable_2": [
+            "Succeeded"
+          ]
+        },
+        "type": "Compose"
+      },
+      "Compose_2": {
+        "inputs": {
+          "NumberOfLastNamesWithB": "@variables('numberOfLastNamesWithB')",
+          "NumberOfLastNamesWithoutB": "@variables('numberOfLastNamesWithOutB')"
+        },
+        "runAfter": {
+          "For_each": [
+            "Succeeded"
+          ]
+        },
+        "type": "Compose"
+      },
+      "For_each": {
+        "actions": {
+          "Condition": {
+            "actions": {
+              "Increment_variable": {
+                "inputs": {
+                  "name": "numberOfLastNamesWithB",
+                  "value": 1
+                },
+                "runAfter": {},
+                "type": "IncrementVariable"
+              }
+            },
+            "else": {
+              "actions": {
+                "Increment_variable_2": {
+                  "inputs": {
+                    "name": "numberOfLastNamesWithOutB",
+                    "value": 1
+                  },
+                  "runAfter": {},
+                  "type": "IncrementVariable"
+                }
+              }
+            },
+            "expression": {
+              "and": [
+                {
+                  "equals": [
+                    "@items('For_each')['lastname']",
+                    "b"
+                  ]
+                }
+              ]
+            },
+            "runAfter": {},
+            "type": "If"
+          }
+        },
+        "foreach": "@body('Parse_JSON')",
+        "runAfter": {
+          "Parse_JSON": [
+            "Succeeded"
+          ]
+        },
+        "type": "Foreach"
+      },
+      "Initialize_variable": {
+        "inputs": {
+          "variables": [
+            {
+              "name": "numberOfLastNamesWithB",
+              "type": "Integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {},
+        "type": "InitializeVariable"
+      },
+      "Initialize_variable_2": {
+        "inputs": {
+          "variables": [
+            {
+              "name": "numberOfLastNamesWithOutB",
+              "type": "Integer",
+              "value": 0
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_variable": [
+            "Succeeded"
+          ]
+        },
+        "type": "InitializeVariable"
+      },
+      "Parse_JSON": {
+        "inputs": {
+          "content": "@outputs('Compose')",
+          "schema": {
+            "items": {
+              "properties": {
+                "firstname": {
+                  "type": "string"
+                },
+                "lastname": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "firstname",
+                "lastname"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "runAfter": {
+          "Compose": [
+            "Succeeded"
+          ]
+        },
+        "type": "ParseJson"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "parameters": {},
+    "triggers": {
+      "manual": {
+        "inputs": {
+          "schema": {}
+        },
+        "kind": "Http",
+        "type": "Request"
+      }
+    }
+  }
+}
