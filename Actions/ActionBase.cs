@@ -18,7 +18,7 @@ namespace LogicAppsTesting.Actions
     {
         public static ValueTask<JToken> ExecuteAsync(WorkflowAction workflowAction, WorkflowContext context)
         {
-            var action = ActionFactory.CreateAction(workflowAction.Type);
+            var action = ActionFactory.GetAction(workflowAction.Type);
             return action.ExecuteAsync(workflowAction.Inputs, context);
         }
     }
@@ -34,7 +34,7 @@ namespace LogicAppsTesting.Actions
             { WorkflowActionType.IncrementVariable, new IncrementVariableAction() },
          };
 
-        public static ActionBase CreateAction(WorkflowActionType type)
+        public static ActionBase GetAction(WorkflowActionType type)
         {
             return actionMap[type];
         }
