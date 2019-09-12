@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Azure.WebJobs;
 using Newtonsoft.Json.Linq;
@@ -10,7 +9,7 @@ namespace LogicAppsTesting
     public class WorkflowContext
     {
         private readonly Dictionary<string, JToken> outputs = new Dictionary<string, JToken>();
-
+        
         public WorkflowContext(IDurableOrchestrationContext durableContext)
         {
             this.OrchestrtionContext = durableContext ?? throw new ArgumentNullException(nameof(durableContext));
@@ -26,6 +25,11 @@ namespace LogicAppsTesting
         public T GetExpandedValue<T>(JObject jsonObject, string fieldName)
         {
             return this.GetExpandedValue(jsonObject, fieldName).Value<T>();
+        }
+
+        public JToken GetExpandedJToken(JToken jToken)
+        {
+            return ExpressionEvaluator.Expand(jToken, this.outputs);
         }
 
         public JToken SaveOutput(string actionName, JToken outputValue)
@@ -68,6 +72,14 @@ namespace LogicAppsTesting
                 }
 
                 throw new ArgumentException($"Couldn't find any output named '{outputName}'. Existing outputs: {string.Join(", ", outputs.Keys)}");
+            }
+            else if (expression.StartsWith("@guid("))
+            {
+                return Guid.NewGuid();
+            }
+            else if (expression.StartsWith("@utcNow("))
+            {
+                return DateTime.UtcNow;
             }
             else
             {
