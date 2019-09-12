@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Dynamitey.DynamicObjects;
+using LogicAppsTesting.Schema;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Extensions.Primitives;
 using Newtonsoft.Json.Linq;
@@ -14,6 +12,32 @@ namespace LogicAppsTesting.Actions
     public abstract class ActionBase
     {
         public abstract ValueTask<JToken> ExecuteAsync(JToken input, WorkflowContext context);
+    }
+
+    class ActionOrchestrator
+    {
+        public static ValueTask<JToken> ExecuteAsync(WorkflowAction workflowAction, WorkflowContext context)
+        {
+            var action = ActionFactory.CreateAction(workflowAction.Type);
+            return action.ExecuteAsync(workflowAction.Inputs, context);
+        }
+    }
+
+    public static class ActionFactory
+    {
+        // We'll add more to this dictionary as we add more actions
+        public static Dictionary<WorkflowActionType, ActionBase> actionMap = new Dictionary<WorkflowActionType, ActionBase>
+        {
+            { WorkflowActionType.Compose, new ComposeAction() },
+            { WorkflowActionType.Http, new HttpAction() },
+            { WorkflowActionType.InitializeVariable, new InitializeVariableAction() },
+            { WorkflowActionType.IncrementVariable, new IncrementVariableAction() },
+         };
+
+        public static ActionBase CreateAction(WorkflowActionType type)
+        {
+            return actionMap[type];
+        }
     }
 
     public class ComposeAction : ActionBase

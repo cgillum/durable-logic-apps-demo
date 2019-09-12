@@ -45,13 +45,6 @@ namespace LogicAppsTesting
 
             Console.WriteLine();
 
-            // We'll add more to this dictionary as we add more actions
-            var actionMap = new Dictionary<WorkflowActionType, ActionBase>
-            {
-                { WorkflowActionType.Compose, new ComposeAction() },
-                { WorkflowActionType.Http, new HttpAction() },
-            };
-
             // Mock the Durable Orchestration pieces. Eventually, we'll use the real context instead of this fake one.
             var durableContext = new Mock<IDurableOrchestrationContext>(MockBehavior.Strict);
             durableContext
@@ -63,7 +56,7 @@ namespace LogicAppsTesting
             // Execute the logic app!
             foreach (WorkflowAction action in sortedActions)
             {
-                JToken result = await actionMap[action.Type].ExecuteAsync(action.Inputs, context);
+                JToken result = await ActionOrchestrator.ExecuteAsync(action, context);
 
                 // Outputs are saved to the context, so that expressions can reference them in later steps
                 context.SaveOutput(action.Name, result);
