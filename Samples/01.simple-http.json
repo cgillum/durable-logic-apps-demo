@@ -5,7 +5,10 @@
       "Compose": {
         "inputs": {
           "currentDateTimeUtc": "@utcNow()",
-          "someId": "@guid()"
+          "someId": "@guid()",
+          "someConstant": 28,
+          "someString": "hardCodeString",
+          "listofGuids": [ "@guid()", "@guid()", "@guid()" ]
         },
         "runAfter": {},
         "type": "Compose"
