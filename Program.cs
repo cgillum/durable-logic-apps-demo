@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using LogicApps.Schema;
 using Newtonsoft.Json;
@@ -21,10 +22,30 @@ namespace LogicApps.TestApp
             WorkflowDocument doc = JsonConvert.DeserializeObject<WorkflowDocument>(sample1JsonText);
 
             // Run the workflow in the Logic Apps emulator
-            await Emulator.ExecuteAsync(doc);
+            ////await Emulator.ExecuteAsync(doc);
+
+            // Generate the function code using the old CodeGen APIs
+            var buffer = new StringBuilder(4096);
+            using (var writer = new StringWriter(buffer))
+            {
+                CodeDomCodeGenerator.Generate("ComposeHttp", writer);
+            }
+
+            Console.WriteLine(buffer.ToString());
+            Console.WriteLine();
+
+            // Do the same thing but using the Roslyn compiler
+            buffer.Clear();
+            using (var writer = new StringWriter(buffer))
+            {
+                LogicAppsCompiler.Compile("ComposeHttp", writer);
+            }
+
+            Console.WriteLine(buffer.ToString());
 
             Console.WriteLine();
             Console.WriteLine("Done");
+            await Task.Yield();
         }
     }
 }
