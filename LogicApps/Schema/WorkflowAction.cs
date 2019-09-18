@@ -6,9 +6,9 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 
-namespace LogicAppsTesting.Schema
+namespace LogicApps.Schema
 {
-    class WorkflowAction
+    internal class WorkflowAction
     {
         public WorkflowAction(string name)
         {
@@ -22,7 +22,7 @@ namespace LogicAppsTesting.Schema
 
         [JsonProperty("runAfter")]
         [JsonConverter(typeof(DependencyConverter))]
-        public IReadOnlyDictionary<string, IReadOnlyList<Status>> Dependencies { get; private set; }
+        public IReadOnlyDictionary<string, IReadOnlyList<WorkflowStatus>> Dependencies { get; private set; }
 
         [JsonProperty("type")]
         public WorkflowActionType Type { get; private set; }
@@ -32,25 +32,25 @@ namespace LogicAppsTesting.Schema
             return this.Type.ToString();
         }
 
-        class DependencyConverter : JsonConverter
+        private class DependencyConverter : JsonConverter
         {
             public override bool CanConvert(Type objectType)
             {
-                return objectType is IReadOnlyDictionary<string, IReadOnlyList<Status>>;
+                return objectType is IReadOnlyDictionary<string, IReadOnlyList<WorkflowStatus>>;
             }
 
             public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
             {
-                var actionDictionary = new Dictionary<string, IReadOnlyList<Status>>(StringComparer.Ordinal);
+                var actionDictionary = new Dictionary<string, IReadOnlyList<WorkflowStatus>>(StringComparer.Ordinal);
                 while (reader.Read() && reader.TokenType == JsonToken.PropertyName)
                 {
                     string dependantActionName = (string)reader.Value;
                     if (reader.Read())
                     {
-                        var statusValues = new List<Status>();
+                        var statusValues = new List<WorkflowStatus>();
                         while (reader.Read() && reader.TokenType == JsonToken.String)
                         {
-                            statusValues.Add(Enum.Parse<Status>((string)reader.Value));
+                            statusValues.Add((WorkflowStatus)Enum.Parse(typeof(WorkflowStatus), (string)reader.Value));
                         }
 
                         actionDictionary.Add(dependantActionName, statusValues);

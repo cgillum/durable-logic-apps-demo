@@ -4,7 +4,7 @@ using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 
-namespace LogicAppsTesting.Schema
+namespace LogicApps.Schema
 {
     class WorkflowDocument
     {

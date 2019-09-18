@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
-namespace LogicAppsTesting
+namespace LogicApps.Schema
 {
     /// <summary>
     /// Generic topological sort implementation from https://www.codeproject.com/Articles/869059/Topological-sorting-in-Csharp.

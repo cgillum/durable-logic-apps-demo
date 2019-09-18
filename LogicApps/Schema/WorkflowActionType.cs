@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace LogicAppsTesting.Schema
+namespace LogicApps.Schema
 {
-    enum WorkflowActionType
+    internal enum WorkflowActionType
     {
         None = 0,
         ApiConnection,

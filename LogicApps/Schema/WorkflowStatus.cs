@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace LogicAppsTesting.Schema
+namespace LogicApps
 {
-    enum Status
+    internal enum WorkflowStatus
     {
         None = 0,
         Succeeded,

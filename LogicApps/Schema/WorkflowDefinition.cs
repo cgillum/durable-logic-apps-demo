@@ -5,14 +5,18 @@ using System.Collections.Specialized;
 using System.Text;
 using Newtonsoft.Json;
 
-namespace LogicAppsTesting.Schema
+namespace LogicApps.Schema
 {
-    class WorkflowDefinition
+    internal class WorkflowDefinition
     {
+        [JsonProperty("actions")]
         [JsonConverter(typeof(ActionsConverter))]
         public IDictionary<string, WorkflowAction> Actions { get; set; }
 
-        class ActionsConverter : JsonConverter
+        [JsonProperty("triggers")]
+        public IDictionary<string, WorkflowTrigger> Triggers { get; set; }
+
+        private class ActionsConverter : JsonConverter
         {
             public override bool CanConvert(Type objectType)
             {
