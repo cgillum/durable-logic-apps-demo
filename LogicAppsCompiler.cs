@@ -1,18 +1,15 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 using Dynamitey.DynamicObjects;
+using LogicApps.LogicApps.CodeGenerators;
 using LogicApps.Schema;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Formatting;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Formatting;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 
@@ -20,6 +17,12 @@ namespace LogicApps
 {
     public static class LogicAppsCompiler
     {
+        private static readonly IReadOnlyDictionary<WorkflowActionType, ActionCodeGenerator> ActionCodeGenerators = new Dictionary<WorkflowActionType, ActionCodeGenerator>()
+        {
+            { WorkflowActionType.Compose, new ComposeCodeGenerator() },
+            { WorkflowActionType.Http, new HttpCodeGenerator() },
+        };
+
         public static void Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
         {
             // Resources for learning how to use Roslyn to generate code:
@@ -27,20 +30,31 @@ namespace LogicApps
             // http://roslynquoter.azurewebsites.net/ (use with caution - this creates excessively verbose Roslyn code - most .WithXXX() methods could be simplified to .AddXXX())
 
             var workspace = new AdhocWorkspace();
-            var cu = SF.CompilationUnit()
-                .AddUsing("System")
-                .AddUsing("Microsoft.Azure.WebJobs")
-                .AddUsing("Microsoft.Azure.WebJobs.Extensions.DurableTask")
-                .AddUsing("Newtonsoft.Json.Linq");
+            var cu = SF.CompilationUnit().AddUsings(
+                SF.UsingDirective(SF.IdentifierName("System")),
+                SF.UsingDirective(SF.IdentifierName("System.Collections.Generic")),
+                SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs")),
+                SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.DurableTask")),
+                SF.UsingDirective(SF.IdentifierName("Newtonsoft.Json.Linq")));
 
             var ns = SF.NamespaceDeclaration(SF.IdentifierName("LogicAppsDemoApp.GeneratedCode"));
 
-            // Trigger functions are declared first
             var @class = SF.ClassDeclaration(workflowName).AddModifiers(SF.Token(SyntaxKind.StaticKeyword));
+
+            // Fields for storing outputs and variables
+            @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Outputs"));
+            
+            // Trigger functions are declared first
             foreach ((string name, WorkflowTrigger trigger) in doc.Definition.Triggers)
             {
                 @class = @class.AddMembers(CreateTriggerFunction(name, trigger, workflowName));
             }
+
+            // Sort the actions based on their dependencies
+            IReadOnlyList<(string, WorkflowAction)> sortedActions = TopologicalSort.Sort(
+                doc.Definition.Actions.Values,
+                a => a.Dependencies.Select(p => p.Key).ToList(),
+                a => a.Name).Select(a => (a.Name, a)).ToList().AsReadOnly();
 
             var orchestrationMethod = CreateFunction("Task", "Orchestrator", workflowName)
                 .AddParameterListParameters(
@@ -49,7 +63,8 @@ namespace LogicApps
                         "IDurableOrchestrationContext",
                         "context"))
                 .AddBodyStatements(
-                    SF.ParseStatement(@"throw new NotImplementedException();").NormalizeWhitespace());
+                    GenerateOrchestratorStatements(sortedActions).ToArray())
+                .NormalizeWhitespace();
 
             // The one orchestrator function comes after the trigger(s)
             @class = @class.AddMembers(orchestrationMethod);
@@ -66,9 +81,35 @@ namespace LogicApps
             formattedNode.WriteTo(codeWriter);
         }
 
-        static CompilationUnitSyntax AddUsing(this CompilationUnitSyntax cu, string @namespace)
+        static FieldDeclarationSyntax CreateStaticDictionary<TKey, TValue>(string fieldName)
         {
-            return cu.AddUsings(SF.UsingDirective(SF.IdentifierName(@namespace)));
+            string typeName = $"Dictionary<{typeof(TKey).Name}, {typeof(TValue).Name}>";
+            VariableDeclarationSyntax variable = SF.VariableDeclaration(SF.ParseTypeName(typeName))
+                .AddVariables(SF.VariableDeclarator(fieldName)
+                    .WithInitializer(SF.EqualsValueClause(SF.ObjectCreationExpression(SF.ParseTypeName($"{typeName}()")))));
+
+            FieldDeclarationSyntax field = SF.FieldDeclaration(variable).AddModifiers(
+                SF.Token(SyntaxKind.PrivateKeyword),
+                SF.Token(SyntaxKind.StaticKeyword),
+                SF.Token(SyntaxKind.ReadOnlyKeyword));
+
+            return field;
+        }
+
+        static IReadOnlyList<ActionCodeGenerator> GetCodeGenerators(IEnumerable<WorkflowAction> actions)
+        {
+            IReadOnlyList<WorkflowAction> sortedActions = TopologicalSort.Sort(
+                actions,
+                a => a.Dependencies.Select(p => p.Key).ToList(),
+                a => a.Name);
+
+            var sortedCodeGenerators = new List<ActionCodeGenerator>();
+            foreach (WorkflowAction actionDefinition in sortedActions)
+            {
+                sortedCodeGenerators.Add(ActionCodeGenerators[actionDefinition.Type]);
+            }
+
+            return sortedCodeGenerators.AsReadOnly();
         }
 
         static MethodDeclarationSyntax CreateTriggerFunction(string functionName, WorkflowTrigger trigger, string workflowName)
@@ -92,10 +133,32 @@ namespace LogicApps
                             SF.ParseStatement($"string instanceId = await client.StartNewAsync(\"{workflowName}\", null);\n"),
                             SF.ParseStatement(@"log.LogInformation($""Started workflow {functionName}, instance ID = {instanceId}."");")
                         );
-                    // TODO: Body
                     return function;
                 default:
                     throw new ArgumentException($"Trigger type '{trigger.Type}' is not supported.");
+            }
+        }
+
+        static IEnumerable<StatementSyntax> GenerateOrchestratorStatements(IReadOnlyList<(string, WorkflowAction)> sortedActions)
+        {
+            foreach ((string name, WorkflowAction action) in sortedActions)
+            {
+                ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
+                switch (generator.ActionType)
+                {
+                    case ActionType.Inline:
+                        yield return SF.ParseStatement($@"Outputs[""{name}""] = {name}(context);");
+                        break;
+                    case ActionType.Http:
+                        yield return SF.ParseStatement($@"Outputs[""{name}""] = await {name}(context);");
+                        break;
+                    case ActionType.Activity:
+                        yield return SF.ParseStatement($@"Outputs[""{name}""] = await context.CallActivityAsync<JToken>(""{name}"", null);");
+                        break;
+                    default:
+                        throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
+                }
+
             }
         }
 
@@ -108,10 +171,11 @@ namespace LogicApps
                 switch (action.Type)
                 {
                     case WorkflowActionType.Compose:
-                        method = CreateStaticMethod("void", name);
+                        method = CreateStaticMethod("JToken", name).AddParameterListParameters(
+                            CreateParameter("IDurableOrchestrationContext", "context"));
                         break;
                     default:
-                        method = CreateFunction("void", name, name)
+                        method = CreateFunction("JToken", name, name)
                             .AddParameterListParameters(
                                 CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
                         break;
