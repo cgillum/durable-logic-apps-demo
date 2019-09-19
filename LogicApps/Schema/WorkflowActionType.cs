@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace LogicApps.Schema
+﻿namespace LogicApps.Schema
 {
-    internal enum WorkflowActionType
+    public enum WorkflowActionType
     {
         None = 0,
         ApiConnection,

@@ -1,13 +1,10 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.Text;
 using Newtonsoft.Json;
 
 namespace LogicApps.Schema
 {
-    internal class WorkflowDefinition
+    public class WorkflowDefinition
     {
         [JsonProperty("actions")]
         [JsonConverter(typeof(ActionsConverter))]

@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace LogicApps.Schema
 {
-    internal class WorkflowTrigger
+    public class WorkflowTrigger
     {
         [JsonProperty("inputs")]
         public JToken Inputs { get; set; }

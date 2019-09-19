@@ -8,7 +8,7 @@ using Newtonsoft.Json.Serialization;
 
 namespace LogicApps.Schema
 {
-    internal class WorkflowAction
+    public class WorkflowAction
     {
         public WorkflowAction(string name)
         {

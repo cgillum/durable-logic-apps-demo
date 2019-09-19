@@ -28,7 +28,7 @@ namespace LogicApps.TestApp
             var buffer = new StringBuilder(4096);
             using (var writer = new StringWriter(buffer))
             {
-                CodeDomCodeGenerator.Generate("ComposeHttp", writer);
+                ////CodeDomCodeGenerator.Generate("ComposeHttp", writer);
             }
 
             Console.WriteLine(buffer.ToString());
@@ -38,7 +38,7 @@ namespace LogicApps.TestApp
             buffer.Clear();
             using (var writer = new StringWriter(buffer))
             {
-                LogicAppsCompiler.Compile("ComposeHttp", writer);
+                LogicAppsCompiler.Compile("ComposeHttp", doc, writer);
             }
 
             Console.WriteLine(buffer.ToString());

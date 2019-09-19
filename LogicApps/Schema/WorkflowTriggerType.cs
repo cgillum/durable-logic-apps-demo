@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace LogicApps.Schema
+﻿namespace LogicApps.Schema
 {
-    internal enum WorkflowTriggerType
+    public enum WorkflowTriggerType
     {
         None = 0,
         Recurrence,

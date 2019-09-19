@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace LogicApps
+﻿namespace LogicApps
 {
-    internal enum WorkflowStatus
+    public enum WorkflowStatus
     {
         None = 0,
         Succeeded,

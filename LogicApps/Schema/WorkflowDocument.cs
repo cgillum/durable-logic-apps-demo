@@ -6,7 +6,7 @@ using Newtonsoft.Json.Serialization;
 
 namespace LogicApps.Schema
 {
-    class WorkflowDocument
+    public class WorkflowDocument
     {
         [JsonProperty("definition")]
         public WorkflowDefinition Definition { get; set; }
