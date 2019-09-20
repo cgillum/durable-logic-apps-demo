@@ -1,0 +1,44 @@
+﻿{
+  "$connections": {
+    "value": {
+      "teams": {
+        "connectionId": "/subscriptions/74041a36-249a-4625-953f-ed6b8ede568b/resourceGroups/logic-app-wenoz/providers/Microsoft.Web/connections/teams",
+        "connectionName": "teams",
+        "id": "/subscriptions/74041a36-249a-4625-953f-ed6b8ede568b/providers/Microsoft.Web/locations/centralus/managedApis/teams"
+      }
+    }
+  },
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Post_a_message_(V3)": {
+        "inputs": {
+          "body": {
+            "body": {
+              "content": "<p>hello, @{utcNow()}<br>\n</p>",
+              "contentType": "html"
+            }
+          },
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['teams']['connectionId']"
+            }
+          },
+          "method": "post",
+          "path": "/v3/beta/teams/@{encodeURIComponent('3257dd92-3121-4d64-963e-b76aca1a6466')}/channels/@{encodeURIComponent('19:f65cbbb61f4740e4b79e282efa4e5700@thread.skype')}/messages"
+        },
+        "runAfter": {},
+        "type": "ApiConnection"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "parameters": {
+      "$connections": {
+        "defaultValue": {},
+        "type": "Object"
+      }
+    },
+    "triggers": {}
+  }
+}

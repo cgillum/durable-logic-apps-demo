@@ -16,6 +16,7 @@ namespace LogicApps.TestApp
             // These JSON files are the logic apps that we're testing
             string fileName = "01.simple-http.json";
             //string fileName = "03.foreach.json";
+            //string fileName = "connection.json";
 
             string sample1FilePath = Path.Join(Environment.CurrentDirectory, "Samples", fileName);
             Console.WriteLine($"Loading Logic App workflow definition from {sample1FilePath}...");
