@@ -1,14 +1,16 @@
-﻿using System.Collections.Generic;
-
-namespace LogicApps.LogicApps.CodeGenerators
+﻿namespace LogicApps.LogicApps.CodeGenerators
 {
+    using Newtonsoft.Json;
+    using Newtonsoft.Json.Linq;
+    using System.Collections.Generic;
+
     class ComposeCodeGenerator : ActionCodeGenerator
     {
         public override ActionType ActionType => ActionType.Inline;
 
-        public override IEnumerable<string> GenerateStatements()
+        public override IEnumerable<string> GenerateStatements(JToken inputs)
         {
-            yield return "throw new NotImplementedException();";
+            yield return $@"return {ExpressionCompiler.ConvertToStringInterpolation(inputs)};";
         }
     }
 }

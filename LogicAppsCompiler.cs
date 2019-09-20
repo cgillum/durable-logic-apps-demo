@@ -21,6 +21,7 @@ namespace LogicApps
         {
             { WorkflowActionType.Compose, new ComposeCodeGenerator() },
             { WorkflowActionType.Http, new HttpCodeGenerator() },
+            { WorkflowActionType.ApiConnection, new ApiConnectionCodeGenerator() },
         };
 
         public static void Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
@@ -33,6 +34,7 @@ namespace LogicApps
             var cu = SF.CompilationUnit().AddUsings(
                 SF.UsingDirective(SF.IdentifierName("System")),
                 SF.UsingDirective(SF.IdentifierName("System.Collections.Generic")),
+                SF.UsingDirective(SF.IdentifierName("System.Threading.Tasks")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.DurableTask")),
                 SF.UsingDirective(SF.IdentifierName("Newtonsoft.Json.Linq")));
@@ -43,7 +45,8 @@ namespace LogicApps
 
             // Fields for storing outputs and variables
             @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Outputs"));
-            
+            @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Parameters"));
+
             // Trigger functions are declared first
             foreach ((string name, WorkflowTrigger trigger) in doc.Definition.Triggers)
             {
@@ -181,7 +184,9 @@ namespace LogicApps
                         break;
                 }
 
-                yield return method.AddBodyStatements(SF.ParseStatement("throw new NotImplementedException();"));
+                var codeGenerator = ActionCodeGenerators[action.Type];
+                var code = codeGenerator.GenerateStatements(action.Inputs);
+                yield return method.AddBodyStatements(code.Select(line => SF.ParseStatement(line)).ToArray());            
             }
         }
 
