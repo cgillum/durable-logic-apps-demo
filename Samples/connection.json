@@ -15,7 +15,7 @@
         "inputs": {
           "body": {
             "body": {
-              "content": "<p>hello, @{utcNow()}<br>\n</p>",
+              "content": "<p>hello, @{utcNow()}<br></p>",
               "contentType": "html"
             }
           },

@@ -17,7 +17,7 @@
         "inputs": {
           "body": "@outputs('Compose')",
           "method": "POST",
-          "uri": "https://postb.in/1569004330356-7808686930220"
+          "uri": "https://postb.in/1569012102347-2005884046666"
         },
         "runAfter": {
           "Compose": [

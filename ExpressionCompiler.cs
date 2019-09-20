@@ -9,30 +9,31 @@
     {
         public static string ConvertToStringInterpolation(JToken token)
         {
-            string interpolated = ToJsonString(token);
+            string interpolated = ToJsonString(token, 0);
             return $@"$@""{interpolated}""";
         }
 
-        private static string ToJsonString(JToken input)
+        private static string ToJsonString(JToken input, int level)
         {
             if (input.Type == JTokenType.Property)
             {
                 JProperty jProperty = (JProperty)input;
                 if (jProperty.HasValues)
                 {
-                    return $@"""""{jProperty.Name}"""":""""{ToJsonString(jProperty.Value)}""""";
+                    return $@"""""{jProperty.Name}"""": {ToJsonString(jProperty.Value, ++level)}";
                 }
                 else
                 {
-                    return $@"""""{jProperty.Name}"""""":""""null""""";
+                    return $@"""""{jProperty.Name}"""""": null";
                 }
             }
             else if (input.Type == JTokenType.Object)
             {
-                List<string> results = new List<string>(); 
+                List<string> results = new List<string>();
+                ++level;
                 foreach (var token in input)
                 {
-                    results.Add(ToJsonString(token));
+                    results.Add(ToJsonString(token, level));
                 }
                 return $@"{{{{{string.Join(",", results)}}}}}";
             }
@@ -41,14 +42,24 @@
                 List<string> results = new List<string>();
                 foreach (var token in input)
                 {
-                    results.Add(ToJsonString(token));
+                    results.Add(ToJsonString(token, level));
                 }
                 return $@"[{string.Join(",", results)}]";
             }
             else
             {
-                // reach the bottom layer and should expand the value
-                return ParseToken(input).ToString();
+                // reach the bottom layer and should expand the value            
+                JToken value = ParseToken(input).ToString();
+
+                if (level == 0)
+                {
+                    return $@"{value}";
+                }
+                else
+                {
+                    return $@"""""{value}""""";
+                }
+                 
             }
         }
 
@@ -63,7 +74,7 @@
                     int i = 0;
                     JToken tempResult = input;
                     string tempString = "";
-                    bool returnString = true;
+                    bool hasStringInterpolation = false;
                     while (i < stringBody.Length)
                     {
                         char currentChar = stringBody[i];
@@ -77,7 +88,7 @@
                                 int removeIndex = stringBody.Substring(i, endIndex - i + 1).IndexOf('{');
                                 var tryToEval = stringBody.Substring(i, endIndex - i + 1).Remove(removeIndex, 1);
 
-                                tempResult = ConvertToStringInterpolation(tryToEval);
+                                hasStringInterpolation = hasStringInterpolation || ConvertToStringInterpolation(tryToEval, out tempResult);
                                 tempString += tempResult.ToString();
 
                                 i = endIndex + 1;
@@ -85,7 +96,7 @@
                             }
 
                             endIndex = FindTheFirstClosingParenthesisPosition(stringBody, i);
-                            tempResult = ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1));
+                            hasStringInterpolation = hasStringInterpolation || ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
                             tempString += tempResult.ToString();
 
                             i = endIndex + 1;
@@ -93,14 +104,14 @@
                         }
                         else if (currentChar == '[')
                         {
+                            //int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
+                            //hasStringInterpolation = hasStringInterpolation ||  ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
+                            //tempString += tempResult.ToString();
                             int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
                             var match = Regex.Match(stringBody.Substring(i, endIndex - i + 1), @"\['(\w+)'\]");
                             string propertyName = match.Groups[1].Value;
 
                             tempString += $@"[""{propertyName}""]";
-
-                            //tempResult = ((JObject)tempResult)[propertyName];
-                            //returnString = false;
                             i = endIndex + 1;
                             continue;
                         }
@@ -109,34 +120,50 @@
                         i++;
                     }
 
-                    if (returnString)
+
+                    if (hasStringInterpolation)
                     {
-                        return tempString;
+                        int lastclosingBracketIndex = FindTheLastClosingBracketPosition(tempString, 0);
+                        if (lastclosingBracketIndex == tempString.Length -1)
+                        {
+                            tempString += "}";
+                        }
+                        else
+                        {
+                            tempString = tempString.Insert(lastclosingBracketIndex + 1, "}");
+                        }                       
                     }
-                    else
-                    {
-                        return tempResult;
-                    }
+                    
+                    return tempString;
                 }
             }
 
             return input;
         }
 
-        private static JToken ConvertToStringInterpolation(string expression)
+        private static bool ConvertToStringInterpolation(string expression, out JToken result)
         {
             Match match;
             if (expression.StartsWith("@outputs("))
             {
                 match = Regex.Match(expression, @"@outputs\('(\w+)'\)");
                 string outputName = match.Groups[1].Value;
-                return $@"{{Outputs[""{outputName}""]}}";
+                result = $@"{{Outputs[""{outputName}""]";
+                return true;
             }
             else if (expression.StartsWith("@parameters("))
             {
                 match = Regex.Match(expression, @"@parameters\('(\$\w+)'\)");
                 string parameterName = match.Groups[1].Value;
-                return $@"Parameters[""{parameterName}""]";
+                result = $@"{{Parameters[""{parameterName}""]";
+                return true;
+            }
+            else if (expression.StartsWith("["))
+            {
+                match = Regex.Match(expression, @"\['(\w+)'\]");
+                string propertyName = match.Groups[1].Value;
+                result = $@"[""{propertyName}""]";
+                return true;
             }
             else if (expression.StartsWith("@encodeURIComponent("))
             {
@@ -147,15 +174,18 @@
                 }
 
                 string uriComponent = match.Groups[1].Value;
-                return $"{Uri.EscapeUriString(uriComponent)}";
+                result = $"{Uri.EscapeUriString(uriComponent)}";
+                return false;
             }
             else if(expression.StartsWith("@guid("))
             {
-                return "{@guid(context)}";
+                result = "{@guid(context)}";
+                return false;
             }
             else if (expression.StartsWith("@utcNow("))
             {
-                return "{@utcNow(context)}";
+                result = "{@utcNow(context)}";
+                return false;
             }
             else
             {
@@ -176,6 +206,11 @@
         private static int FindTheFirstClosingCurlyBracePosition(string str, int startIndex)
         {
             return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf('}');
+        }
+
+        private static int FindTheLastClosingBracketPosition(string str, int startIndex)
+        {
+            return startIndex + str.Substring(startIndex, str.Length - startIndex).LastIndexOf(']');
         }
 
         public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
