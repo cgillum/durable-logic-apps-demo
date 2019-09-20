@@ -44,7 +44,7 @@ namespace LogicApps
 
             var ns = SF.NamespaceDeclaration(SF.IdentifierName("LogicAppsDemoApp.GeneratedCode"));
 
-            var @class = SF.ClassDeclaration(workflowName).AddModifiers(SF.Token(SyntaxKind.StaticKeyword));
+            var @class = SF.ClassDeclaration(workflowName).AddModifiers(SF.Token(SyntaxKind.PublicKeyword), SF.Token(SyntaxKind.StaticKeyword));
 
             // Fields for storing outputs and variables
             @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Outputs"));
@@ -62,6 +62,14 @@ namespace LogicApps
                 a => a.Dependencies.Select(p => p.Key).ToList(),
                 a => a.Name).Select(a => (a.Name, a)).ToList().AsReadOnly();
 
+            // insert connection token if specified in workflow.json 
+            var orchestratorStatements = new List<StatementSyntax>();
+            if (doc.ConnectionToken != null)
+            {
+                orchestratorStatements.Add(SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertToStringInterpolation(doc.ConnectionToken["value"])});"));
+            }
+            orchestratorStatements.AddRange(GenerateOrchestratorStatements(sortedActions));
+
             var orchestrationMethod = CreateFunction("async Task", "Orchestrator", workflowName)
                 .AddParameterListParameters(
                     CreateBindingParameter(
@@ -69,14 +77,16 @@ namespace LogicApps
                         "IDurableOrchestrationContext",
                         "context"))
                 .WithBody(SF.Block())
-                .AddBodyStatements(
-                    GenerateOrchestratorStatements(sortedActions).ToArray());
-
+                .AddBodyStatements(orchestratorStatements.ToArray());
+       
             // The one orchestrator function comes after the trigger(s)
             @class = @class.AddMembers(orchestrationMethod);
 
             // All helper functions go next
             @class = @class.AddMembers(GetActionMethods(sortedActions).ToArray());
+
+            // All helper functions go next
+            @class = @class.AddMembers(GetBuildInMethod().ToArray());
 
             ns = ns.AddMembers(@class);
             cu = cu.AddMembers(ns);
@@ -89,7 +99,7 @@ namespace LogicApps
 
         static FieldDeclarationSyntax CreateStaticDictionary<TKey, TValue>(string fieldName)
         {
-            string typeName = $"Dictionary<{typeof(TKey).Name}, {typeof(TValue).Name}>";
+            string typeName = $"Dictionary <{typeof(TKey).Name}, {typeof(TValue).Name}>";
             VariableDeclarationSyntax variable = SF.VariableDeclaration(SF.ParseTypeName(typeName))
                 .AddVariables(SF.VariableDeclarator(fieldName)
                     .WithInitializer(SF.EqualsValueClause(SF.ObjectCreationExpression(SF.ParseTypeName($"{typeName}()")))));
@@ -130,26 +140,28 @@ namespace LogicApps
         }
 
         static IEnumerable<StatementSyntax> GenerateOrchestratorStatements(IReadOnlyList<(string, WorkflowAction)> sortedActions)
-        {
+        {           
             foreach ((string name, WorkflowAction action) in sortedActions)
             {
+                string sanitizedName = SanitizeActionName(name);
+
                 ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
-                string resultVariable = $"resultOf{action.Name}";
+                string resultVariable = $"resultOf{sanitizedName}";
 
                 StatementSyntax statement;
                 switch (generator.ActionType)
                 {
                     // CONSIDER: Create intermediate variables for easier debugging
                     case ActionType.Inline:
-                        statement = SF.ParseStatement($@"JToken {resultVariable} = {name}(context);");
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = {sanitizedName}(context);");
                         break;
                     case ActionType.Http:
-                        statement = SF.ParseStatement($@"JToken {resultVariable} = await {name}(context);");
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = await {sanitizedName}(context);");
                         break;
                     case ActionType.Activity:
                         // TODO: If an activity needs access to variables, outputs, or parameters, then we would need to pass them 
                         //       as a parameter to the activity function. Not yet clear if we need activity functions at all, though.
-                        statement = SF.ParseStatement($@"JToken {resultVariable} = await context.CallActivityAsync<JToken>(""{name}"", null);");
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = await context.CallActivityAsync<JToken>(""{sanitizedName}"", null);");
                         break;
                     default:
                         throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
@@ -168,22 +180,23 @@ namespace LogicApps
             foreach ((string name, WorkflowAction action) in sortedActions)
             {
                 ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
+                string sanitizedName = SanitizeActionName(name);
 
                 MethodDeclarationSyntax method;
                 switch (generator.ActionType)
                 {
                     case ActionType.Inline:
-                        method = CreateStaticMethod("JToken", name)
+                        method = CreateStaticMethod("JToken", sanitizedName)
                                     .AddParameterListParameters(
                                         CreateParameter("IDurableOrchestrationContext", "context"));
                         break;
                     case ActionType.Http:
-                        method = CreateStaticMethod("async Task<JToken>", name)
+                        method = CreateStaticMethod("async Task<JToken>", sanitizedName)
                                     .AddParameterListParameters(
                                         CreateParameter("IDurableOrchestrationContext", "context"));
                         break;
                     case ActionType.Activity:
-                        method = CreateFunction("JToken", name, name)
+                        method = CreateFunction("JToken", sanitizedName, sanitizedName)
                                     .AddParameterListParameters(
                                         CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
                         break;
@@ -198,6 +211,19 @@ namespace LogicApps
             }
         }
 
+        static IEnumerable<MethodDeclarationSyntax> GetBuildInMethod()
+        {
+            foreach (var buildInFunction in ExpressionCompiler.BuildInFunctionTypeMap)
+            {
+
+                string statement = $"return {ExpressionCompiler.BuildInFunctionStatementMap[buildInFunction.Key]};";
+                MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
+                .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
+                .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+
+                yield return method;
+            }
+        }
         static MethodDeclarationSyntax CreateFunction(string returnType, string methodName, string functionName)
         {
             // All functions must be public and static.
@@ -249,20 +275,25 @@ namespace LogicApps
             switch (recurrence.Frequency.ToLowerInvariant())
             {
                 case "second":
-                    return $"{recurrence.Interval} * * * * *";
+                    return $"*/{recurrence.Interval} * * * * *";
                 case "minute":
-                    return $"* {recurrence.Interval} * * * *";
+                    return $"* */{recurrence.Interval} * * * *";
                 case "hour":
-                    return $"* * {recurrence.Interval} * * *";
+                    return $"* * */{recurrence.Interval} * * *";
                 case "day":
-                    return $"* * * {recurrence.Interval} * *";
+                    return $"* * * */{recurrence.Interval} * *";
                 case "month":
-                    return $"* * * * {recurrence.Interval} *";
+                    return $"* * * * */{recurrence.Interval} *";
                 case "year":
-                    return $"* * * * * {recurrence.Interval}";
+                    return $"* * * * * */{recurrence.Interval}";
                 default:
                     throw new ArgumentException($"Recurrence frequency '{recurrence.Frequency}' is not supported.");
             }
+        }
+
+        static string SanitizeActionName(string actionName)
+        {
+            return actionName.Replace("(", "_").Replace(")", "_");
         }
     }
 }

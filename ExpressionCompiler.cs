@@ -1,6 +1,5 @@
 ﻿namespace LogicApps
 {
-    using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
     using System;
     using System.Collections.Generic;
@@ -10,25 +9,22 @@
     {
         public static string ConvertToStringInterpolation(JToken token)
         {
-            //JToken json = Evaluate(token);
-            //string interpolated = JsonConvert.SerializeObject(json).Replace("\"", "\"\"");
-            //return $@"$@""{{{interpolated}}}""";
-            string interpolated = ToJsonString(token).Replace("\"", "\"\"");
+            string interpolated = ToJsonString(token);
             return $@"$@""{interpolated}""";
         }
 
-        public static string ToJsonString(JToken input)
+        private static string ToJsonString(JToken input)
         {
             if (input.Type == JTokenType.Property)
             {
                 JProperty jProperty = (JProperty)input;
                 if (jProperty.HasValues)
                 {
-                    return $@"""{jProperty.Name}"":""{ToJsonString(jProperty.Value)}""";
+                    return $@"""""{jProperty.Name}"""":""""{ToJsonString(jProperty.Value)}""""";
                 }
                 else
                 {
-                    return $@"""{jProperty.Name}"""":""null""";
+                    return $@"""""{jProperty.Name}"""""":""""null""""";
                 }
             }
             else if (input.Type == JTokenType.Object)
@@ -56,46 +52,7 @@
             }
         }
 
-        public static JToken Evaluate(JToken input)
-        {
-            if (input.Type == JTokenType.Property)
-            {
-                JProperty jProperty = (JProperty)input;
-                if (jProperty.HasValues)
-                {
-                    return new JProperty(jProperty.Name, Evaluate(jProperty.Value));
-                }
-                else
-                {
-                    return new JProperty(jProperty.Name, null);
-                }
-            }
-            else if (input.Type == JTokenType.Object)
-            {
-                JObject resultObect = new JObject();
-                foreach (var token in input)
-                {
-                    resultObect.Add(Evaluate(token));
-                }
-                return resultObect;
-            }
-            else if (input.Type == JTokenType.Array)
-            {
-                JArray resultArray = new JArray();
-                foreach (var token in input)
-                {
-                    resultArray.Add(Evaluate(token));
-                }
-                return resultArray;
-            }
-            else
-            {
-                // reach the bottom layer and should expand the value
-                return ParseToken(input);
-            }
-        }
-
-        public static JToken ParseToken(JToken input)
+        private static JToken ParseToken(JToken input)
         {
             // Check to see if this is an expression
             if (input.Type == JTokenType.String)
@@ -173,7 +130,7 @@
             {
                 match = Regex.Match(expression, @"@outputs\('(\w+)'\)");
                 string outputName = match.Groups[1].Value;
-                return $@"Outputs[""{outputName}""]";
+                return $@"{{Outputs[""{outputName}""]}}";
             }
             else if (expression.StartsWith("@parameters("))
             {
@@ -220,5 +177,17 @@
         {
             return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf('}');
         }
+
+        public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
+        {
+            {"@guid", "context.NewGuid()"},
+            {"@utcNow", "DateTime.UtcNow"},
+        };
+
+        public static Dictionary<string, Type> BuildInFunctionTypeMap = new Dictionary<string, Type>
+        {
+            {"@guid", typeof(Guid)},
+            {"@utcNow", typeof(DateTime)},
+        };
     }
 }

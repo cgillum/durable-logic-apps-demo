@@ -9,10 +9,6 @@ namespace LogicApps.LogicApps.CodeGenerators
 
         public override IEnumerable<string> GenerateStatements(JToken input)
         {
-             //yield return $@"return {ExpressionCompiler.ConvertToStringInterpolation(inputs)};";
-
-            // TODO: Need to expand inline functions
-            // string jsonStringLiteral = Utils.CreateJsonStringLiteral(input);
             string jsonStringLiteral = ExpressionCompiler.ConvertToStringInterpolation(input);
             yield return $"return JToken.Parse({jsonStringLiteral});";
         }
