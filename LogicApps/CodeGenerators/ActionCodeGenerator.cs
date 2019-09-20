@@ -1,8 +1,8 @@
-﻿using System.Collections.Generic;
-using Newtonsoft.Json.Linq;
-
 namespace LogicApps.LogicApps.CodeGenerators
 {
+    using System.Collections.Generic;
+    using Newtonsoft.Json.Linq;
+
     /// <summary>
     /// Base class for all action code generators.
     /// </summary>

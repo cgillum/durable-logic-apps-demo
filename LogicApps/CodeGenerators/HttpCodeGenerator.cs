@@ -1,10 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Newtonsoft.Json.Linq;
-
 namespace LogicApps.LogicApps.CodeGenerators
 {
+    using Newtonsoft.Json.Linq;
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+
     class HttpCodeGenerator : ActionCodeGenerator
     {
         public override ActionType ActionType => ActionType.Http;
@@ -24,7 +24,7 @@ namespace LogicApps.LogicApps.CodeGenerators
                 var uri = new Uri(""{uri}"");
                 var headers = new Dictionary<string, StringValues>(StringComparer.OrdinalIgnoreCase);
                 headers.Add(""Content-Type"", ""application/json"");
-                var content = {Utils.CreateJsonStringLiteral(body)};
+                var content = {ExpressionCompiler.ConvertToStringInterpolation(body)};
                 var request = new DurableHttpRequest(method, uri, headers, content);
                 DurableHttpResponse response = await context.CallHttpAsync(request);
                 return new JObject {{ {{ ""statusCode"", (int)response.StatusCode }}, {{ ""headers"", JObject.FromObject(response.Headers) }}, {{ ""body"", response.Content }} }};
