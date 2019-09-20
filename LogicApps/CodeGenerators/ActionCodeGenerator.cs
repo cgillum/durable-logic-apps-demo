@@ -1,8 +1,8 @@
-﻿using Newtonsoft.Json.Linq;
-using System.Collections.Generic;
-
 namespace LogicApps.LogicApps.CodeGenerators
 {
+    using System.Collections.Generic;
+    using Newtonsoft.Json.Linq;
+
     /// <summary>
     /// Base class for all action code generators.
     /// </summary>
@@ -10,6 +10,6 @@ namespace LogicApps.LogicApps.CodeGenerators
     {
         public abstract ActionType ActionType { get; }
 
-        public abstract IEnumerable<string> GenerateStatements(JToken inputs);
+        public abstract IEnumerable<string> GenerateStatements(JToken input);
     }
 }

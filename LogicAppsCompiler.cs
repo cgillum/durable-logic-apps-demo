@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Dynamitey.DynamicObjects;
 using LogicApps.LogicApps.CodeGenerators;
 using LogicApps.Schema;
 using Microsoft.CodeAnalysis;
@@ -34,9 +33,13 @@ namespace LogicApps
             var cu = SF.CompilationUnit().AddUsings(
                 SF.UsingDirective(SF.IdentifierName("System")),
                 SF.UsingDirective(SF.IdentifierName("System.Collections.Generic")),
+                SF.UsingDirective(SF.IdentifierName("System.Net.Http")),
                 SF.UsingDirective(SF.IdentifierName("System.Threading.Tasks")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.DurableTask")),
+                SF.UsingDirective(SF.IdentifierName("Microsoft.Extensions.Logging")),
+                SF.UsingDirective(SF.IdentifierName("Microsoft.Extensions.Primitives")),
+                SF.UsingDirective(SF.IdentifierName("Newtonsoft.Json")),
                 SF.UsingDirective(SF.IdentifierName("Newtonsoft.Json.Linq")));
 
             var ns = SF.NamespaceDeclaration(SF.IdentifierName("LogicAppsDemoApp.GeneratedCode"));
@@ -59,21 +62,21 @@ namespace LogicApps
                 a => a.Dependencies.Select(p => p.Key).ToList(),
                 a => a.Name).Select(a => (a.Name, a)).ToList().AsReadOnly();
 
-            var orchestrationMethod = CreateFunction("Task", "Orchestrator", workflowName)
+            var orchestrationMethod = CreateFunction("async Task", "Orchestrator", workflowName)
                 .AddParameterListParameters(
                     CreateBindingParameter(
                         "OrchestrationTrigger",
                         "IDurableOrchestrationContext",
                         "context"))
+                .WithBody(SF.Block())
                 .AddBodyStatements(
-                    GenerateOrchestratorStatements(sortedActions).ToArray())
-                .NormalizeWhitespace();
+                    GenerateOrchestratorStatements(sortedActions).ToArray());
 
             // The one orchestrator function comes after the trigger(s)
             @class = @class.AddMembers(orchestrationMethod);
 
             // All helper functions go next
-            @class = @class.AddMembers(GetActionMethods(doc).ToArray());
+            @class = @class.AddMembers(GetActionMethods(sortedActions).ToArray());
 
             ns = ns.AddMembers(@class);
             cu = cu.AddMembers(ns);
@@ -99,22 +102,6 @@ namespace LogicApps
             return field;
         }
 
-        static IReadOnlyList<ActionCodeGenerator> GetCodeGenerators(IEnumerable<WorkflowAction> actions)
-        {
-            IReadOnlyList<WorkflowAction> sortedActions = TopologicalSort.Sort(
-                actions,
-                a => a.Dependencies.Select(p => p.Key).ToList(),
-                a => a.Name);
-
-            var sortedCodeGenerators = new List<ActionCodeGenerator>();
-            foreach (WorkflowAction actionDefinition in sortedActions)
-            {
-                sortedCodeGenerators.Add(ActionCodeGenerators[actionDefinition.Type]);
-            }
-
-            return sortedCodeGenerators.AsReadOnly();
-        }
-
         static MethodDeclarationSyntax CreateTriggerFunction(string functionName, WorkflowTrigger trigger, string workflowName)
         {
             switch (trigger.Type)
@@ -134,7 +121,7 @@ namespace LogicApps
                             CreateParameter("ILogger", "log"))
                         .AddBodyStatements(
                             SF.ParseStatement($"string instanceId = await client.StartNewAsync(\"{workflowName}\", null);\n"),
-                            SF.ParseStatement(@"log.LogInformation($""Started workflow {functionName}, instance ID = {instanceId}."");")
+                            SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
                         );
                     return function;
                 default:
@@ -147,46 +134,67 @@ namespace LogicApps
             foreach ((string name, WorkflowAction action) in sortedActions)
             {
                 ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
+                string resultVariable = $"resultOf{action.Name}";
+
+                StatementSyntax statement;
                 switch (generator.ActionType)
                 {
+                    // CONSIDER: Create intermediate variables for easier debugging
                     case ActionType.Inline:
-                        yield return SF.ParseStatement($@"Outputs[""{name}""] = {name}(context);");
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = {name}(context);");
                         break;
                     case ActionType.Http:
-                        yield return SF.ParseStatement($@"Outputs[""{name}""] = await {name}(context);");
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = await {name}(context);");
                         break;
                     case ActionType.Activity:
-                        yield return SF.ParseStatement($@"Outputs[""{name}""] = await context.CallActivityAsync<JToken>(""{name}"", null);");
+                        // TODO: If an activity needs access to variables, outputs, or parameters, then we would need to pass them 
+                        //       as a parameter to the activity function. Not yet clear if we need activity functions at all, though.
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = await context.CallActivityAsync<JToken>(""{name}"", null);");
                         break;
                     default:
                         throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
                 }
 
+                // Add extra whitespace to make the generated code easier to read
+                // TODO: Need to make sure the whole file is consistent in terms of using \r\n or \n for newlines
+                yield return statement.WithTrailingTrivia(SF.CarriageReturnLineFeed);
+                yield return SF.ParseStatement($@"Outputs[""{name}""] = {resultVariable};")
+                    .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed);
             }
         }
 
-        static IEnumerable<MethodDeclarationSyntax> GetActionMethods(WorkflowDocument doc)
+        static IEnumerable<MethodDeclarationSyntax> GetActionMethods(IReadOnlyList<(string, WorkflowAction)> sortedActions)
         {
-            foreach ((string name, WorkflowAction action) in doc.Definition.Actions)
+            foreach ((string name, WorkflowAction action) in sortedActions)
             {
-                // TODO: Method return types and implementations
+                ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
+
                 MethodDeclarationSyntax method;
-                switch (action.Type)
+                switch (generator.ActionType)
                 {
-                    case WorkflowActionType.Compose:
-                        method = CreateStaticMethod("JToken", name).AddParameterListParameters(
-                            CreateParameter("IDurableOrchestrationContext", "context"));
+                    case ActionType.Inline:
+                        method = CreateStaticMethod("JToken", name)
+                                    .AddParameterListParameters(
+                                        CreateParameter("IDurableOrchestrationContext", "context"));
+                        break;
+                    case ActionType.Http:
+                        method = CreateStaticMethod("async Task<JToken>", name)
+                                    .AddParameterListParameters(
+                                        CreateParameter("IDurableOrchestrationContext", "context"));
+                        break;
+                    case ActionType.Activity:
+                        method = CreateFunction("JToken", name, name)
+                                    .AddParameterListParameters(
+                                        CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
                         break;
                     default:
-                        method = CreateFunction("JToken", name, name)
-                            .AddParameterListParameters(
-                                CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
-                        break;
+                        throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
                 }
 
-                var codeGenerator = ActionCodeGenerators[action.Type];
-                var code = codeGenerator.GenerateStatements(action.Inputs);
-                yield return method.AddBodyStatements(code.Select(line => SF.ParseStatement(line)).ToArray());            
+                // The generators will dynamically produce code that we inject into the method body.
+                yield return method.AddBodyStatements(
+                    generator.GenerateStatements(action.Inputs)
+                        .Select(codeLine => SF.ParseStatement(codeLine).WithTrailingTrivia(SF.CarriageReturnLineFeed)).ToArray());
             }
         }
 
@@ -209,12 +217,9 @@ namespace LogicApps
                 SF.IdentifierName(returnType),
                 SF.Identifier(methodName));
 
-            if (isPublic)
-            {
-                staticMethod = staticMethod.AddModifiers(SF.Token(SyntaxKind.PublicKeyword));
-            }
-
-            return staticMethod.AddModifiers(SF.Token(SyntaxKind.StaticKeyword));
+            return staticMethod.AddModifiers(
+                SF.Token(isPublic ? SyntaxKind.PublicKeyword : SyntaxKind.PrivateKeyword),
+                SF.Token(SyntaxKind.StaticKeyword));
         }
 
         static ParameterSyntax CreateBindingParameter(
@@ -236,17 +241,6 @@ namespace LogicApps
         static ParameterSyntax CreateParameter(string parameterType, string parameterName)
         {
             return SF.Parameter(SF.Identifier(parameterName)).WithType(SF.IdentifierName(parameterType));
-        }
-
-        static MethodDeclarationSyntax CreateComposeMethod(string methodName, JToken input)
-        {
-            //string inputJson = input.ToString(Formatting.None);
-
-            MethodDeclarationSyntax method = SF.MethodDeclaration(SF.IdentifierName("JToken"), SF.Identifier(methodName))
-                .AddModifiers(SF.Token(SyntaxKind.StaticKeyword))
-                .AddBodyStatements(SF.ParseStatement("throw new NotImplementedException();").NormalizeWhitespace());
-
-            return method;
         }
 
         static string GetCronExpression(WorkflowRecurrence recurrence)
