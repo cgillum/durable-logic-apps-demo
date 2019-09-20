@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace LogicApps.LogicApps.CodeGenerators
 {
@@ -6,9 +7,11 @@ namespace LogicApps.LogicApps.CodeGenerators
     {
         public override ActionType ActionType => ActionType.Inline;
 
-        public override IEnumerable<string> GenerateStatements()
+        public override IEnumerable<string> GenerateStatements(JToken input)
         {
-            yield return "throw new NotImplementedException();";
+            // TODO: Need to expand inline functions
+            string jsonStringLiteral = Utils.CreateJsonStringLiteral(input);
+            yield return $"return JToken.Parse({jsonStringLiteral});";
         }
     }
 }

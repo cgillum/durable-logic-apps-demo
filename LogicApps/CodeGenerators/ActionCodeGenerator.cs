@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace LogicApps.LogicApps.CodeGenerators
 {
@@ -9,6 +10,6 @@ namespace LogicApps.LogicApps.CodeGenerators
     {
         public abstract ActionType ActionType { get; }
 
-        public abstract IEnumerable<string> GenerateStatements();
+        public abstract IEnumerable<string> GenerateStatements(JToken input);
     }
 }
