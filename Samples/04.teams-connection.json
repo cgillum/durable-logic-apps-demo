@@ -39,6 +39,14 @@
         "type": "Object"
       }
     },
-    "triggers": {}
+    "triggers": {
+      "Recurrence": {
+        "recurrence": {
+          "frequency": "Second",
+          "interval": 10
+        },
+        "type": "Recurrence"
+      }
+    }
   }
 }

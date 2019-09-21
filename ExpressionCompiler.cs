@@ -216,7 +216,7 @@
         public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
         {
             {"@guid", "context.NewGuid()"},
-            {"@utcNow", "DateTime.UtcNow"},
+            {"@utcNow", "context.CurrentUtcDateTime"},
         };
 
         public static Dictionary<string, Type> BuildInFunctionTypeMap = new Dictionary<string, Type>

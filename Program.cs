@@ -2,8 +2,6 @@
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
 using LogicApps.Schema;
 using Newtonsoft.Json;
 
@@ -11,58 +9,31 @@ namespace LogicApps.TestApp
 {
     class Program
     {
-        static async Task Main(string[] args)
+        static void Main(string[] args)
         {
             // These JSON files are the logic apps that we're testing
-            string fileName = "01.simple-http.json";
-            //string fileName = "03.foreach.json";
-            //string fileName = "connection.json";
+            //(string fileName, string workflowName) = ("01.simple-http.json", "ComposeHttp");
+            //(string fileName, string workflowName) = ("03.foreach.json", "ForEach");
+            (string fileName, string workflowName) = ("04.teams-connection.json", "TeamsConnection");
 
             string sample1FilePath = Path.Join(Environment.CurrentDirectory, "Samples", fileName);
-            Console.WriteLine($"Loading Logic App workflow definition from {sample1FilePath}...");
+            Console.WriteLine($"Loading Logic App '{workflowName}' workflow definition from {sample1FilePath}...");
 
             string sample1JsonText = File.ReadAllText(sample1FilePath);
             WorkflowDocument doc = JsonConvert.DeserializeObject<WorkflowDocument>(sample1JsonText);
 
-            // Run the workflow in the Logic Apps emulator
-            ////await Emulator.ExecuteAsync(doc);
-
-            // Generate the function code using the old CodeGen APIs
-            var buffer = new StringBuilder(4096);
-            using (var writer = new StringWriter(buffer))
-            {
-                ////CodeDomCodeGenerator.Generate("ComposeHttp", writer);
-            }
-
-            Console.WriteLine(buffer.ToString());
-            Console.WriteLine();
-
-            // Do the same thing but using the Roslyn compiler
-            buffer.Clear();
-            using (var writer = new StringWriter(buffer))
-            {
-                LogicAppsCompiler.Compile("ComposeHttp", doc, writer);
-            }
-
             if (args.Any(arg => arg == "--proj"))
             {
                 bool force = args.Any(arg => arg == "--force");
-                GenerateFunctionProject("ComposeHttp", doc, force);
+                GenerateFunctionProject(workflowName, doc, force);
             }
             else
             {
-                buffer.Clear();
-                using (var writer = new StringWriter(buffer))
-                {
-                    LogicAppsCompiler.Compile("ComposeHttp", doc, writer);
-                }
-
-                Console.WriteLine(buffer.ToString());
+                LogicAppsCompiler.Compile(workflowName, doc, Console.Out);
             }
 
             Console.WriteLine();
             Console.WriteLine("Done");
-            await Task.Yield();
         }
 
         static void GenerateFunctionProject(string workflowName, WorkflowDocument doc, bool force)

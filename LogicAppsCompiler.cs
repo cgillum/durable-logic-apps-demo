@@ -66,8 +66,11 @@ namespace LogicApps
             var orchestratorStatements = new List<StatementSyntax>();
             if (doc.ConnectionToken != null)
             {
-                orchestratorStatements.Add(SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertToStringInterpolation(doc.ConnectionToken["value"])});"));
+                orchestratorStatements.Add(
+                    SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertToStringInterpolation(doc.ConnectionToken["value"])});")
+                        .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed));
             }
+
             orchestratorStatements.AddRange(GenerateOrchestratorStatements(sortedActions));
 
             var orchestrationMethod = CreateFunction("async Task", "Orchestrator", workflowName)
