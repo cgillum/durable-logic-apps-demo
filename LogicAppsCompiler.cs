@@ -88,10 +88,10 @@ namespace LogicApps
             // The one orchestrator function comes after the trigger(s)
             @class = @class.AddMembers(orchestrationMethod);
 
-            // All helper functions go next
+            // All action functions go next
             @class = @class.AddMembers(GetActionMethods(sortedActions).ToArray());
 
-            // All helper functions go next
+            // All built-in expression language functions go next
             @class = @class.AddMembers(GetBuildInMethod().ToArray());
 
             ns = ns.AddMembers(@class);
@@ -170,7 +170,7 @@ namespace LogicApps
 
         static ParameterSyntax GetTriggerBindingParameters(WorkflowTrigger trigger, ProjectArtifacts artifacts)
         {
-            JObject inputs = (JObject)trigger.Inputs;
+            JObject inputs = trigger.Inputs;
             string triggerType = inputs["type"].Value<string>();
 
             string attributeName;
@@ -277,11 +277,10 @@ namespace LogicApps
         {
             foreach (var buildInFunction in ExpressionCompiler.BuildInFunctionTypeMap)
             {
-
                 string statement = $"return {ExpressionCompiler.BuildInFunctionStatementMap[buildInFunction.Key]};";
                 MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
-                .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
-                .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+                    .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
+                    .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
 
                 yield return method;
             }

@@ -6,7 +6,7 @@ namespace LogicApps.Schema
     public class WorkflowTrigger
     {
         [JsonProperty("inputs")]
-        public JToken Inputs { get; set; }
+        public JObject Inputs { get; set; }
 
         [JsonProperty("recurrence")]
         public WorkflowRecurrence Recurrence { get; set; }

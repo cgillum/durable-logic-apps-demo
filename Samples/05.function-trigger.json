@@ -4,11 +4,7 @@
     "actions": {
       "Compose": {
         "inputs": {
-          "currentDateTimeUtc": "@utcNow()",
-          "someId": "@guid()",
-          "someConstant": 28,
-          "someString": "hardCodeString",
-          "listofGuids": [ "@guid()", "@guid()", "@guid()" ]
+          "queueMessage": "@triggerBody()"
         },
         "runAfter": {},
         "type": "Compose"
@@ -17,7 +13,7 @@
         "inputs": {
           "body": "@outputs('Compose')",
           "method": "POST",
-          "uri": "https://postb.in/1569012102347-2005884046666"
+          "uri": "https://postb.in/1569605592293-1230095291975"
         },
         "runAfter": {
           "Compose": [
