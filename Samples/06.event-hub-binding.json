@@ -1,41 +1,28 @@
 {
-    "$connections": {
-        "value": {
-            "eventhubs": {
-                "connectionId": "/subscriptions/74041a36-249a-4625-953f-ed6b8ede568b/resourceGroups/logic-app-wenoz/providers/Microsoft.Web/connections/eventhubs",
-                "connectionName": "eventhubs",
-                "id": "/subscriptions/74041a36-249a-4625-953f-ed6b8ede568b/providers/Microsoft.Web/locations/centralus/managedApis/eventhubs"
-            }
-        }
-    },
     "definition": {
         "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
         "actions": {
             "Compose": {
-                "inputs": "transformed from source message: @{triggerBody()?['ContentData']}",
+                "inputs": "transformed from source message: @{triggerBody()}",
                 "runAfter": {},
                 "type": "Compose"
             },
-            "Send_event": {
-                "inputs": {
-                    "body": {
-                        "ContentData": "@{base64(outputs('Compose'))}"
-                    },
-                    "host": {
-                        "connection": {
-                            "name": "@parameters('$connections')['eventhubs']['connectionId']"
-                        }
-                    },
-                    "method": "post",
-                    "path": "/@{encodeURIComponent('logic-app-destination')}/events"
-                },
-                "runAfter": {
-                    "Compose": [
-                        "Succeeded"
-                    ]
-                },
-                "type": "ApiConnection"
-            }
+          "Send_event": {
+              "inputs": {
+                  "content": "@outputs('Compose')", // not included in function json but need the designer to parse out from logic app json
+                  "type": "eventHub",
+                  "direction": "out",
+                  "name": "outputEventMessage",
+                  "eventHubName": "durable-destination",
+                  "connection": "EventHubConnection"
+            },
+            "runAfter": {
+                "Compose": [
+                  "Succeeded"
+                ]
+            },
+            "type": "Binding"
+          }
         },
         "contentVersion": "1.0.0.0",
         "outputs": {},
@@ -49,10 +36,10 @@
           "When_events_are_available_in_Event_Hub": {
             "inputs": {
               "type": "eventHubTrigger",
-              "connection": "EventHubConnection",
               "direction": "in",
+              "name": "eventMessage",
               "eventHubName": "durable-source",
-              "name": "eventData"
+              "connection": "EventHubConnection"
             },
             "type": "Binding"
           }

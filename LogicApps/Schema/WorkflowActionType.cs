@@ -42,6 +42,6 @@
         Wait,
         Workflow,
         XmlValidation,
-        Xslt,
+        Xslt       
     }
 }

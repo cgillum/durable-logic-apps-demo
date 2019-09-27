@@ -17,8 +17,8 @@ namespace LogicApps.TestApp
             //(string fileName, string workflowName) = ("01.simple-http.json", "ComposeHttp");
             //(string fileName, string workflowName) = ("03.foreach.json", "ForEach");
             //(string fileName, string workflowName) = ("04.teams-connection.json", "TeamsConnection");
-            (string fileName, string workflowName) = ("05.function-trigger.json", "QueueBindings");
-            //(string fileName, string workflowName) = ("06.event-hub-binding.json", "EventHubBindings");
+            //(string fileName, string workflowName) = ("05.function-trigger.json", "QueueBindings");
+            (string fileName, string workflowName) = ("06.event-hub-binding.json", "EventHubBindings");
 
             string sample1FilePath = Path.Join(Environment.CurrentDirectory, "Samples", fileName);
             Console.WriteLine($"Loading Logic App '{workflowName}' workflow definition from {sample1FilePath}...");

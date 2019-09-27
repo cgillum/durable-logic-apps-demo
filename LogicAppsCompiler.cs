@@ -21,6 +21,7 @@ namespace LogicApps
             { WorkflowActionType.Compose, new ComposeCodeGenerator() },
             { WorkflowActionType.Http, new HttpCodeGenerator() },
             { WorkflowActionType.ApiConnection, new ApiConnectionCodeGenerator() },
+            { WorkflowActionType.Binding, new BindingCodeGenerator() }
         };
 
         public static ProjectArtifacts Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
@@ -90,7 +91,7 @@ namespace LogicApps
             @class = @class.AddMembers(orchestrationMethod);
 
             // All action functions go next
-            @class = @class.AddMembers(GetActionMethods(sortedActions).ToArray());
+            @class = @class.AddMembers(GetActionMethods(sortedActions, artifacts).ToArray());
 
             // All built-in expression language functions go next
             @class = @class.AddMembers(GetBuildInMethod().ToArray());
@@ -185,12 +186,12 @@ namespace LogicApps
                     attributeParameters = $@"""{inputs["queueName"]}"", Connection = ""{inputs["connection"]}""";
                     artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.Storage"] = "3.0.8";
                     break;
-                case "blobTrigger":        // TODO
                 case "eventHubTrigger":
                     attributeName = "EventHubTrigger";
                     attributeParameters = $@"""{inputs["eventHubName"]}"", Connection = ""{inputs["connection"]}""";
                     artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.3";
                     break;
+                case "blobTrigger":  // TODO
                 case "serviceBusTrigger":  // TODO
                 case "cosmosDBTrigger":    // TODO
                 default:
@@ -204,6 +205,44 @@ namespace LogicApps
             }
 
             return CreateBindingParameter(attributeName, parameterType, "input", attributeParameters);
+        }
+
+        static ParameterSyntax GetOutputBindingParameters(WorkflowAction action, ProjectArtifacts artifacts)
+        {
+            JObject inputs = (JObject) action.Inputs;
+            string bindingType = inputs["type"].Value<string>();
+            string parameterName = inputs["name"].Value<string>();
+
+            string attributeName;
+            string attributeParameters;
+            string parameterType = "string";
+
+            switch (bindingType)
+            {
+                case "queue":
+                    attributeName = "Queue";
+                    attributeParameters = $@"""{inputs["queueName"]}"", Connection = ""{inputs["connection"]}""";
+                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.Storage"] = "3.0.8";
+                    break;
+                case "eventHub":
+                    attributeName = "EventHub";
+                    attributeParameters = $@"""{inputs["eventHubName"]}"", Connection = ""{inputs["connection"]}""";
+                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.3";
+                    break;
+                case "blob":  // TODO
+                case "serviceBus":  // TODO
+                case "cosmosDB":    // TODO
+                default:
+                    throw new NotSupportedException($"Binding trigger type '{bindingType}' is not supported.");
+            }
+
+            // TODO: Check for other known app settings
+            if (inputs.TryGetValue("connection", out JToken appSettingName))
+            {
+                artifacts.AppSettings.Add((string)appSettingName);
+            }
+
+            return CreateBindingParameter(attributeName, parameterType, parameterName, attributeParameters);
         }
 
         static IEnumerable<StatementSyntax> GenerateOrchestratorStatements(IReadOnlyList<(string, WorkflowAction)> sortedActions)
@@ -242,7 +281,7 @@ namespace LogicApps
             }
         }
 
-        static IEnumerable<MethodDeclarationSyntax> GetActionMethods(IReadOnlyList<(string, WorkflowAction)> sortedActions)
+        static IEnumerable<MethodDeclarationSyntax> GetActionMethods(IReadOnlyList<(string, WorkflowAction)> sortedActions, ProjectArtifacts artifacts)
         {
             foreach ((string name, WorkflowAction action) in sortedActions)
             {
@@ -266,6 +305,14 @@ namespace LogicApps
                         method = CreateFunction("JToken", sanitizedName, sanitizedName)
                                     .AddParameterListParameters(
                                         CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
+
+                        // add output binding parameter for binding action
+                        if (action.Type == WorkflowActionType.Binding)
+                        {
+                            var parameter = GetOutputBindingParameters(action, artifacts);
+                            method = method.AddParameterListParameters(parameter.AddModifiers(SF.Token(SyntaxKind.OutKeyword)));
+                        }
+
                         break;
                     default:
                         throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
