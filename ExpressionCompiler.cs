@@ -7,10 +7,15 @@
 
     static class ExpressionCompiler
     {
-        public static string ConvertToStringInterpolation(JToken token)
+        public static string ConvertJTokenToStringInterpolation(JToken token)
         {
             string interpolated = ToJsonString(token, 0);
             return $@"$@""{interpolated}""";
+        }
+
+        public static string ConvertStringToStringInterpolation(string input)
+        {
+            return $@"$@""""""{ToJsonString(input, 0)}""""""";
         }
 
         private static string ToJsonString(JToken input, int level)
@@ -58,8 +63,7 @@
                 else
                 {
                     return $@"""""{value}""""";
-                }
-                 
+                }               
             }
         }
 
@@ -74,44 +78,20 @@
                     int i = 0;
                     JToken tempResult = input;
                     string tempString = "";
-                    bool hasStringInterpolation = false;
+                    stringBody = stringBody.RemoveChar("{").RemoveChar("}");
+
                     while (i < stringBody.Length)
                     {
                         char currentChar = stringBody[i];
                         if (currentChar == '@')
                         {
-                            int endIndex;
+                            // append a open brace to indicate here begins a string interpolation
+                            tempString += '{';
 
-                            if (i + 1 < stringBody.Length && stringBody[i + 1] == '{')
-                            {
-                                endIndex = FindTheFirstClosingCurlyBracePosition(stringBody, i);
-                                int removeIndex = stringBody.Substring(i, endIndex - i + 1).IndexOf('{');
-                                var tryToEval = stringBody.Substring(i, endIndex - i + 1).Remove(removeIndex, 1);
+                            // pass the expression without @ sign, ex: @utcNow() => pass in utcNow() into ToStringInterpolation
+                            int endIndex = FindThClosingParenthesisPosition(stringBody, i);
+                            tempString += ToStringInterpolation(stringBody.Substring(i + 1, endIndex - i));
 
-                                hasStringInterpolation = hasStringInterpolation || ConvertToStringInterpolation(tryToEval, out tempResult);
-                                tempString += tempResult.ToString();
-
-                                i = endIndex + 1;
-                                continue;
-                            }
-
-                            endIndex = FindTheFirstClosingParenthesisPosition(stringBody, i);
-                            hasStringInterpolation = hasStringInterpolation || ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
-                            tempString += tempResult.ToString();
-
-                            i = endIndex + 1;
-                            continue;
-                        }
-                        else if (currentChar == '[')
-                        {
-                            //int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
-                            //hasStringInterpolation = hasStringInterpolation ||  ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
-                            //tempString += tempResult.ToString();
-                            int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
-                            var match = Regex.Match(stringBody.Substring(i, endIndex - i + 1), @"\['(\w+)'\]");
-                            string propertyName = match.Groups[1].Value;
-
-                            tempString += $@"[""{propertyName}""]";
                             i = endIndex + 1;
                             continue;
                         }
@@ -120,20 +100,12 @@
                         i++;
                     }
 
+                    // for bracket expression, simply replace ' with " and we will reserve that expression an evaluate at runtime
+                    tempString = tempString.Replace('\'', '\"');
 
-                    if (hasStringInterpolation)
-                    {
-                        int lastclosingBracketIndex = FindTheLastClosingBracketPosition(tempString, 0);
-                        if (lastclosingBracketIndex == tempString.Length -1)
-                        {
-                            tempString += "}";
-                        }
-                        else
-                        {
-                            tempString = tempString.Insert(lastclosingBracketIndex + 1, "}");
-                        }                       
-                    }
-                    
+                    // for some expression we do not convert into string interpolation, so remove the curly braces at the end 
+                    tempString = CloseCurlyBraceForStringInterpolation(tempString);
+
                     return tempString;
                 }
             }
@@ -145,67 +117,179 @@
         /// Converts a workflow expression into a C# expression.
         /// </summary>
         /// <param name="expression">The expression to convert.</param>
-        /// <param name="result">The resulting C# string interpolation expression that can evaluate the workflow expression.</param>
         /// <returns>
-        /// Returns <c>true</c> to continue evaluating the current expression or <c>false</c> if the expression is done evaluating.
+        /// Returns current expression
         /// </returns>
-        private static bool ConvertToStringInterpolation(string expression, out JToken result)
+        private static string ToStringInterpolation(string expression)
         {
             Match match;
-            if (expression.StartsWith("@outputs("))
+            if (expression.StartsWith("outputs("))
             {
-                match = Regex.Match(expression, @"@outputs\('(\w+)'\)");
+                match = Regex.Match(expression, @"outputs\('(\w+)'\)");
                 string outputName = match.Groups[1].Value;
-                result = $@"{{Outputs[""{outputName}""]";
-                return true;
+                return $@"@Outputs[""{outputName}""]";
             }
-            else if (expression.StartsWith("@parameters("))
+            else if (expression.StartsWith("parameters("))
             {
-                match = Regex.Match(expression, @"@parameters\('(\$\w+)'\)");
+                match = Regex.Match(expression, @"parameters\('(\$\w+)'\)");
                 string parameterName = match.Groups[1].Value;
-                result = $@"{{Parameters[""{parameterName}""]";
-                return true;
+                return $@"@Parameters[""{parameterName}""]";
             }
-            else if (expression.StartsWith("["))
+            else if (expression.StartsWith("triggerBody("))
             {
-                match = Regex.Match(expression, @"\['(\w+)'\]");
-                string propertyName = match.Groups[1].Value;
-                result = $@"[""{propertyName}""]";
-                return true;
+                // TODO: This doesn't currently work with expressions like "@triggerBody().name"
+                return "@triggerBody(context)";
             }
-            else if (expression.StartsWith("@encodeURIComponent("))
+            else if (expression.StartsWith("encodeURIComponent("))
             {
-                match = Regex.Match(expression, @"@encodeURIComponent\('(.+)'\)");
+                match = Regex.Match(expression, @"encodeURIComponent\('(.+)'\)");
                 if (!match.Success)
                 {
                     throw new ArgumentException($"Error in regex match for @encodeURIComponent()");
                 }
 
                 string uriComponent = match.Groups[1].Value;
-                result = $"{Uri.EscapeUriString(uriComponent)}";
-                return false;
+                return $@"@encodeURIComponent(""{uriComponent}"")";
             }
-            else if(expression.StartsWith("@guid("))
+            else if (expression.StartsWith("base64("))
             {
-                result = "{@guid(context)}";
-                return false;
+                match = Regex.Match(expression, @"base64\((.+)\)");
+                if (!match.Success)
+                {
+                    throw new ArgumentException($"Error in regex match for @base64()");
+                }
+
+                // todo: does not support expression ex: @base64(output('Compose'))
+                // has to call recursively on this function to support, but current base case throw instead return
+                //ex code: string stringComponent = ExpressionCompiler.ToStringInterpolation(match.Groups[1].Value);
+                string stringComponent = match.Groups[1].Value;
+                return $@"@base64((string){(string)stringComponent})";
             }
-            else if (expression.StartsWith("@utcNow("))
+            else if(expression.StartsWith("guid("))
             {
-                result = "{@utcNow(context)}";
-                return false;
+                return "{@guid(context)}";
             }
-            else if (expression.StartsWith("@triggerBody("))
+            else if (expression.StartsWith("utcNow("))
             {
-                // TODO: This doesn't currently work with expressions like "@triggerBody().name"
-                result = "{@triggerBody(context)}";
-                return false;
+                return "{@utcNow(context)}";
             }
             else
             {
                 throw new ArgumentException($"Didn't recognize expression: {expression}.");
             }
         }
+
+        public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
+        {
+            {"@guid", "context.NewGuid()"},
+            {"@utcNow", "context.CurrentUtcDateTime"},
+            {"@triggerBody", "context.GetInput<JToken>()"},
+        };
+
+        public static Dictionary<string, Type> BuildInFunctionTypeMap = new Dictionary<string, Type>
+        {
+            {"@guid", typeof(Guid)},
+            {"@utcNow", typeof(DateTime)},
+            {"@triggerBody", typeof(JToken)},
+        };
+
+        public static Dictionary<string, string> BuildInContextlessFunctionStatementMap = new Dictionary<string, string>
+        {
+            {"@encodeURIComponent", "Uri.EscapeUriString(content)"},
+            { "@base64", "Convert.ToBase64String(Encoding.UTF8.GetBytes(content))"}
+        };
+
+        public static Dictionary<string, Type> BuildInContextlessFunctionTypeMap = new Dictionary<string, Type>
+        {
+            {"@encodeURIComponent", typeof(string)},
+            { "@base64", typeof(string)},
+        };
+
+        private static string RemoveChar(this string str, string c)
+        {
+            return str.Replace(c, string.Empty);
+        }
+
+        private static string CloseCurlyBraceForStringInterpolation(string stringBody)
+        {
+            // find the first { sign index
+            int atSignIndex = FindTheFirstOpenCurlyBracePositionFromStartIndex(stringBody, 0);
+
+            while (atSignIndex < stringBody.Length)
+            {
+                int closingIndex = FindTheClosingCurlyBraceIndex(stringBody, atSignIndex + 1);
+
+                if (closingIndex == stringBody.Length)
+                {
+                    stringBody += "}";
+                }
+                else
+                {
+                    stringBody = stringBody.Insert(closingIndex, "}");
+                }
+
+                atSignIndex = FindTheFirstOpenCurlyBracePositionFromStartIndex(stringBody, closingIndex + 1);
+            }
+
+            return stringBody;
+        }
+
+        private static int FindTheFirstOpenCurlyBracePositionFromStartIndex(string str, int startIndex)
+        {
+            int index = str.Substring(startIndex, str.Length - startIndex).IndexOf('{');
+            if (index < 0)
+            {
+                return str.Length;
+            }
+            return startIndex + index;
+        }
+
+        private static int FindThClosingParenthesisPosition(string str, int startIndex)
+        {
+            int counter = 0;
+            for (int index = startIndex; index < str.Length; index++)
+            {
+                if (str[index] == '(')
+                {
+                    counter++;
+                }
+
+                if (str[index] == ')')
+                {
+                    counter--;
+
+                    if (counter == 0)
+                    {
+                        return index;
+                    }
+                }
+            }
+            return str.Length;
+        }
+
+        private static int FindTheClosingCurlyBraceIndex(string str, int openIndex)
+        {
+            int counter = 0;
+            for (int index = openIndex + 1; index < str.Length; index++)
+            {
+                if (str[index] == '(' || str[index] == '[' || str[index] == '{')
+                {
+                    counter++;
+                }
+
+                if (str[index] == ')' || str[index] == ']' || str[index] == '}')
+                {
+                    counter--;
+
+                    if (counter == 0 && index + 1 < str.Length && (str[index + 1] != '[' && str[index + 1] != '?' && str[index + 1] != '.'))
+                    {
+                        return index + 1;
+                    }
+                }
+            }
+            return str.Length;
+        }
+
 
         private static int FindTheFirstClosingParenthesisPosition(string str, int startIndex)
         {
@@ -226,19 +310,5 @@
         {
             return startIndex + str.Substring(startIndex, str.Length - startIndex).LastIndexOf(']');
         }
-
-        public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
-        {
-            {"@guid", "context.NewGuid()"},
-            {"@utcNow", "context.CurrentUtcDateTime"},
-            {"@triggerBody", "context.GetInput<JToken>()"},
-        };
-
-        public static Dictionary<string, Type> BuildInFunctionTypeMap = new Dictionary<string, Type>
-        {
-            {"@guid", typeof(Guid)},
-            {"@utcNow", typeof(DateTime)},
-            {"@triggerBody", typeof(JToken)},
-        };
     }
 }

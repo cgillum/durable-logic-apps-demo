@@ -24,7 +24,7 @@ namespace LogicApps.LogicApps.CodeGenerators
                 var uri = new Uri(""{uri}"");
                 var headers = new Dictionary<string, StringValues>(StringComparer.OrdinalIgnoreCase);
                 headers.Add(""Content-Type"", ""application/json"");
-                var content = {ExpressionCompiler.ConvertToStringInterpolation(body)};
+                var content = {ExpressionCompiler.ConvertJTokenToStringInterpolation(body)};
                 var request = new DurableHttpRequest(method, uri, headers, content);
                 DurableHttpResponse response = await context.CallHttpAsync(request);
                 return new JObject {{ {{ ""statusCode"", (int)response.StatusCode }}, {{ ""headers"", JObject.FromObject(response.Headers) }}, {{ ""body"", response.Content }} }};
