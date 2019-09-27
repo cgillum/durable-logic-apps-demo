@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using LogicApps.LogicApps.CodeGenerators;
 using LogicApps.Schema;
 using Microsoft.CodeAnalysis;
@@ -34,7 +35,9 @@ namespace LogicApps
                 SF.UsingDirective(SF.IdentifierName("System")),
                 SF.UsingDirective(SF.IdentifierName("System.Collections.Generic")),
                 SF.UsingDirective(SF.IdentifierName("System.Net.Http")),
+                SF.UsingDirective(SF.IdentifierName("System.Text")),
                 SF.UsingDirective(SF.IdentifierName("System.Threading.Tasks")),
+                SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.EventHubs")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.DurableTask")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Extensions.Logging")),
@@ -67,7 +70,7 @@ namespace LogicApps
             if (doc.ConnectionToken != null)
             {
                 orchestratorStatements.Add(
-                    SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertToStringInterpolation(doc.ConnectionToken["value"])});")
+                    SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertJTokenToStringInterpolation(doc.ConnectionToken["value"])});")
                         .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed));
             }
 
@@ -137,8 +140,60 @@ namespace LogicApps
                             SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
                         );
                     return function;
+                case WorkflowTriggerType.ApiConnection:
+                    string triggerPath = ExpressionCompiler.ConvertJTokenToStringInterpolation(trigger.Inputs["host"]["connection"]["name"]);
+                    if (HasNativeFunctionBindingSupport(triggerPath, out string triggerType))
+                    {
+                        return CreateNativeFunctionTrigger(functionName, trigger, workflowName, triggerType);
+                    }
+
+
+                    throw new NotImplementedException("Here should return default logic app wise api connection trigger that uses api hub");
+
+
                 default:
                     throw new ArgumentException($"Trigger type '{trigger.Type}' is not supported.");
+            }
+        }
+
+        private static bool HasNativeFunctionBindingSupport(string logicAppConnectionPath, out string triggerType)
+        {
+            // todo: need a better mechanism to detect if we support this as a native function trigger
+            // something parse out the trigger type and return boolean that means we enter CreateNativeFunctionTrigger code path
+            if (logicAppConnectionPath.Contains("eventhubs"))
+            {
+                triggerType = "EventHub";
+                return true;
+            }
+
+            triggerType = "";
+            return false;
+        }
+
+        private static MethodDeclarationSyntax CreateNativeFunctionTrigger(string functionName, WorkflowTrigger trigger, string workflowName, string triggerType)
+        {
+            switch (triggerType)
+            {
+                case "EventHub":
+                    string eventHubName = ParseOutEntityName(trigger.Inputs);
+                    return CreateFunction("async Task", $"{functionName}Trigger", functionName)
+                            .AddParameterListParameters(
+                                CreateBindingParameter(
+                                    "EventHubTrigger",
+                                    "EventData",
+                                    "eventData",
+                                    $@"""{eventHubName}"", Connection = ""EventHubConnectionString"""),
+                                CreateBindingParameter(
+                                    "DurableClient",
+                                    "IDurableClient",
+                                    "client"),
+                                CreateParameter("ILogger", "log"))
+                            .AddBodyStatements(
+                                SF.ParseStatement($"string instanceId = await client.StartNewAsync(\"{workflowName}\", null);\n"),
+                                SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
+                            );
+                default:                   
+                    throw new NotImplementedException($"Curerntly do not support {triggerType} as native function trigger.");
             }
         }
 
@@ -186,31 +241,53 @@ namespace LogicApps
                 string sanitizedName = SanitizeActionName(name);
 
                 MethodDeclarationSyntax method;
-                switch (generator.ActionType)
-                {
-                    case ActionType.Inline:
-                        method = CreateStaticMethod("JToken", sanitizedName)
-                                    .AddParameterListParameters(
-                                        CreateParameter("IDurableOrchestrationContext", "context"));
-                        break;
-                    case ActionType.Http:
-                        method = CreateStaticMethod("async Task<JToken>", sanitizedName)
-                                    .AddParameterListParameters(
-                                        CreateParameter("IDurableOrchestrationContext", "context"));
-                        break;
-                    case ActionType.Activity:
-                        method = CreateFunction("JToken", sanitizedName, sanitizedName)
-                                    .AddParameterListParameters(
-                                        CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
-                        break;
-                    default:
-                        throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
-                }
 
-                // The generators will dynamically produce code that we inject into the method body.
-                yield return method.AddBodyStatements(
-                    generator.GenerateStatements(action.Inputs)
-                        .Select(codeLine => SF.ParseStatement(codeLine).WithTrailingTrivia(SF.CarriageReturnLineFeed)).ToArray());
+                if (generator is ApiConnectionCodeGenerator && HasNativeFunctionBindingSupport(action.Inputs["host"]["connection"]["name"].ToString(), out string bindingSource))
+                {
+                    string entityName = ParseOutEntityName(action.Inputs); // ex: get the event hub name
+                    AttributeSyntax outputBindingAttribute = SF.Attribute(SF.IdentifierName($"return: {bindingSource}")) // ex: EventHub
+                        .AddArgumentListArguments(
+                            SF.AttributeArgument(SF.LiteralExpression(SyntaxKind.StringLiteralExpression, SF.Literal(entityName))),
+                            SF.AttributeArgument(SF.ParseExpression($"Connection = \"{bindingSource}Connection\"")));
+
+                    method = CreateFunction("JToken", sanitizedName, sanitizedName)
+                            .AddAttributeLists(SF.AttributeList(SF.SingletonSeparatedList(outputBindingAttribute)))
+                            .AddParameterListParameters(
+                                CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
+
+                    ApiConnectionOutputBindingCodeGenerator specialGenerator = new ApiConnectionOutputBindingCodeGenerator((ApiConnectionCodeGenerator)generator);
+                    yield return method.AddBodyStatements(
+                        specialGenerator.GenerateStatements(action.Inputs)
+                            .Select(codeLine => SF.ParseStatement(codeLine).WithTrailingTrivia(SF.CarriageReturnLineFeed)).ToArray());
+                }
+                else
+                {
+                    switch (generator.ActionType)
+                    {
+                        case ActionType.Inline:
+                            method = CreateStaticMethod("JToken", sanitizedName)
+                                        .AddParameterListParameters(
+                                            CreateParameter("IDurableOrchestrationContext", "context"));
+                            break;
+                        case ActionType.Http:
+                            method = CreateStaticMethod("async Task<JToken>", sanitizedName)
+                                        .AddParameterListParameters(
+                                            CreateParameter("IDurableOrchestrationContext", "context"));
+                            break;
+                        case ActionType.Activity:
+                            method = CreateFunction("JToken", sanitizedName, sanitizedName)
+                                        .AddParameterListParameters(
+                                            CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
+                            break;
+                        default:
+                            throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
+                    }
+
+                    // The generators will dynamically produce code that we inject into the method body.
+                    yield return method.AddBodyStatements(
+                        generator.GenerateStatements(action.Inputs)
+                            .Select(codeLine => SF.ParseStatement(codeLine).WithTrailingTrivia(SF.CarriageReturnLineFeed)).ToArray());
+                }
             }
         }
 
@@ -218,7 +295,6 @@ namespace LogicApps
         {
             foreach (var buildInFunction in ExpressionCompiler.BuildInFunctionTypeMap)
             {
-
                 string statement = $"return {ExpressionCompiler.BuildInFunctionStatementMap[buildInFunction.Key]};";
                 MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
                 .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
@@ -226,7 +302,18 @@ namespace LogicApps
 
                 yield return method;
             }
+
+            foreach (var buildInFunction in ExpressionCompiler.BuildInContextlessFunctionTypeMap)
+            {
+                string statement = $"return {ExpressionCompiler.BuildInContextlessFunctionStatementMap[buildInFunction.Key]};";
+                MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
+                .AddParameterListParameters(CreateParameter("string", "content"))
+                .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+
+                yield return method;
+            }
         }
+
         static MethodDeclarationSyntax CreateFunction(string returnType, string methodName, string functionName)
         {
             // All functions must be public and static.
@@ -297,6 +384,17 @@ namespace LogicApps
         static string SanitizeActionName(string actionName)
         {
             return actionName.Replace("(", "_").Replace(")", "_");
+        }
+
+        static string ParseOutEntityName(JToken inputs)
+        {
+            var entityPart = inputs["path"].ToString().Split('/')[1];
+            Match match = Regex.Match(entityPart, @"encodeURIComponent\('(.+)'\)");
+            if (!match.Success)
+            {
+                throw new ArgumentException($"Error in regex match for @encodeURIComponent()");
+            }
+            return match.Groups[1].Value;
         }
     }
 }

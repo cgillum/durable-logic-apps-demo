@@ -1,0 +1,73 @@
+{
+    "$connections": {
+        "value": {
+            "eventhubs": {
+                "connectionId": "/subscriptions/74041a36-249a-4625-953f-ed6b8ede568b/resourceGroups/logic-app-wenoz/providers/Microsoft.Web/connections/eventhubs",
+                "connectionName": "eventhubs",
+                "id": "/subscriptions/74041a36-249a-4625-953f-ed6b8ede568b/providers/Microsoft.Web/locations/centralus/managedApis/eventhubs"
+            }
+        }
+    },
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Compose": {
+                "inputs": "transformed from source message: @{utcNow()} ",
+                "runAfter": {},
+                "type": "Compose"
+            },
+            "Send_event": {
+                "inputs": {
+                    "body": {
+                        "ContentData": "@{base64(outputs('Compose'))}"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['eventhubs']['connectionId']"
+                        }
+                    },
+                    "method": "post",
+                    "path": "/@{encodeURIComponent('logic-app-destination')}/events"
+                },
+                "runAfter": {
+                    "Compose": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+            }
+        },
+        "triggers": {
+            "When_events_are_available_in_Event_Hub": {
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['eventhubs']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/@{encodeURIComponent('logic-app-source')}/events/batch/head",
+                    "queries": {
+                        "consumerGroupName": "$Default",
+                        "contentType": "text/plain",
+                        "maximumEventsCount": 50
+                    }
+                },
+                "recurrence": {
+                    "frequency": "Second",
+                    "interval": 10
+                },
+                "splitOn": "@triggerBody()",
+                "type": "ApiConnection"
+            }
+        }
+    }
+}

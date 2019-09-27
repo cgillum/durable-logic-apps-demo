@@ -7,10 +7,15 @@
 
     static class ExpressionCompiler
     {
-        public static string ConvertToStringInterpolation(JToken token)
+        public static string ConvertJTokenToStringInterpolation(JToken token)
         {
             string interpolated = ToJsonString(token, 0);
             return $@"$@""{interpolated}""";
+        }
+
+        public static string ConvertStringToStringInterpolation(string input)
+        {
+            return $@"$@""""""{ToJsonString(input, 0)}""""""";
         }
 
         private static string ToJsonString(JToken input, int level)
@@ -58,8 +63,7 @@
                 else
                 {
                     return $@"""""{value}""""";
-                }
-                 
+                }                
             }
         }
 
@@ -69,71 +73,64 @@
             if (input.Type == JTokenType.String)
             {
                 string stringBody = (string)input;
+
                 if (stringBody?.Length > 0)
                 {
                     int i = 0;
                     JToken tempResult = input;
                     string tempString = "";
-                    bool hasStringInterpolation = false;
+                    stringBody = stringBody.RemoveChar("{").RemoveChar("}");
+
                     while (i < stringBody.Length)
                     {
                         char currentChar = stringBody[i];
                         if (currentChar == '@')
                         {
-                            int endIndex;
+                            //if (i + 1 < stringBody.Length && stringBody[i + 1] == '{')
+                            //{
+                            //    endIndex = FindTheFirstClosingCurlyBracePosition(stringBody, i);
+                            //    int removeIndex = stringBody.Substring(i, endIndex - i + 1).IndexOf('{');
+                            //    var tryToEval = stringBody.Substring(i, endIndex - i + 1).Remove(removeIndex, 1);
 
-                            if (i + 1 < stringBody.Length && stringBody[i + 1] == '{')
-                            {
-                                endIndex = FindTheFirstClosingCurlyBracePosition(stringBody, i);
-                                int removeIndex = stringBody.Substring(i, endIndex - i + 1).IndexOf('{');
-                                var tryToEval = stringBody.Substring(i, endIndex - i + 1).Remove(removeIndex, 1);
+                            //    hasStringInterpolation = hasStringInterpolation || ToStringInterpolation(tryToEval, out tempResult);
+                            //    tempString += tempResult.ToString();
 
-                                hasStringInterpolation = hasStringInterpolation || ConvertToStringInterpolation(tryToEval, out tempResult);
-                                tempString += tempResult.ToString();
+                            //    i = endIndex + 1;
+                            //    continue;
+                            //}
 
-                                i = endIndex + 1;
-                                continue;
-                            }
-
-                            endIndex = FindTheFirstClosingParenthesisPosition(stringBody, i);
-                            hasStringInterpolation = hasStringInterpolation || ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
-                            tempString += tempResult.ToString();
+                            // pass int the expression, ex: @utcNow() => pass in utcNow() into ToStringInterpolation
+                            tempString += '{';
+                            int endIndex = FindThClosingParenthesisPosition(stringBody, i);
+                            tempString += ToStringInterpolation(stringBody.Substring(i + 1, endIndex - i));
 
                             i = endIndex + 1;
                             continue;
                         }
-                        else if (currentChar == '[')
-                        {
-                            //int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
-                            //hasStringInterpolation = hasStringInterpolation ||  ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
-                            //tempString += tempResult.ToString();
-                            int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
-                            var match = Regex.Match(stringBody.Substring(i, endIndex - i + 1), @"\['(\w+)'\]");
-                            string propertyName = match.Groups[1].Value;
+                        //else if (currentChar == '[')
+                        //{
+                        //    //int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
+                        //    //hasStringInterpolation = hasStringInterpolation ||  ConvertToStringInterpolation(stringBody.Substring(i, endIndex - i + 1), out tempResult);
+                        //    //tempString += tempResult.ToString();
+                        //    int endIndex = FindTheFirstClosingBracketPosition(stringBody, i);
+                        //    var match = Regex.Match(stringBody.Substring(i, endIndex - i + 1), @"\['(\w+)'\]");
+                        //    string propertyName = match.Groups[1].Value;
 
-                            tempString += $@"[""{propertyName}""]";
-                            i = endIndex + 1;
-                            continue;
-                        }
+                        //    tempString += $@"[""{propertyName}""]";
+                        //    i = endIndex + 1;
+                        //    continue;
+                        //}
 
                         tempString += currentChar;
                         i++;
                     }
 
+                    // for bracket expression, simply replace ' with " and we will reserve that expression an evaluate at runtime
+                    tempString = tempString.Replace('\'', '\"');
 
-                    if (hasStringInterpolation)
-                    {
-                        int lastclosingBracketIndex = FindTheLastClosingBracketPosition(tempString, 0);
-                        if (lastclosingBracketIndex == tempString.Length -1)
-                        {
-                            tempString += "}";
-                        }
-                        else
-                        {
-                            tempString = tempString.Insert(lastclosingBracketIndex + 1, "}");
-                        }                       
-                    }
-                    
+                    // for some expression we do not convert into string interpolation, so remove the curly braces at the end 
+                    tempString = AddCurlyBracesPositionForExpressions(tempString);
+
                     return tempString;
                 }
             }
@@ -141,55 +138,87 @@
             return input;
         }
 
-        private static bool ConvertToStringInterpolation(string expression, out JToken result)
+        private static string AddCurlyBracesPositionForExpressions(string stringBody)
+        {
+            // clean up all upexpected '{' or '}'
+            // stringBody = stringBody.RemoveChar("{").RemoveChar("}");
+
+            // find the first @ sign index
+            //int atSignIndex = FindTheFirstAtSignPositionFromStartIndex(stringBody, 0);
+            int atSignIndex = FindTheFirstOpenCurlyBracesPositionFromStartIndex(stringBody, 0);
+
+            while (atSignIndex < stringBody.Length)
+            {
+                //stringBody = stringBody.Insert(atSignIndex, "{");
+
+                int closingIndex = FindTheClosingIndex(stringBody, atSignIndex + 1);
+
+                if (closingIndex == stringBody.Length)
+                {
+                    stringBody += "}";
+                }
+                else
+                {
+                    stringBody = stringBody.Insert(closingIndex, "}");
+                }
+
+                atSignIndex = FindTheFirstAtSignPositionFromStartIndex(stringBody, closingIndex + 1);
+            }
+
+            return stringBody;
+        }
+
+        private static string ToStringInterpolation(string expression)
         {
             Match match;
-            if (expression.StartsWith("@outputs("))
+            if (expression.StartsWith("outputs("))
             {
-                match = Regex.Match(expression, @"@outputs\('(\w+)'\)");
+                match = Regex.Match(expression, @"outputs\('(\w+)'\)");
                 string outputName = match.Groups[1].Value;
-                result = $@"{{Outputs[""{outputName}""]";
-                return true;
+                return $@"@Outputs[""{outputName}""]";
             }
-            else if (expression.StartsWith("@parameters("))
+            else if (expression.StartsWith("parameters("))
             {
-                match = Regex.Match(expression, @"@parameters\('(\$\w+)'\)");
+                match = Regex.Match(expression, @"parameters\('(\$\w+)'\)");
                 string parameterName = match.Groups[1].Value;
-                result = $@"{{Parameters[""{parameterName}""]";
-                return true;
+                return $@"@Parameters[""{parameterName}""]";
             }
-            else if (expression.StartsWith("["))
+            else if (expression.StartsWith("encodeURIComponent("))
             {
-                match = Regex.Match(expression, @"\['(\w+)'\]");
-                string propertyName = match.Groups[1].Value;
-                result = $@"[""{propertyName}""]";
-                return true;
-            }
-            else if (expression.StartsWith("@encodeURIComponent("))
-            {
-                match = Regex.Match(expression, @"@encodeURIComponent\('(.+)'\)");
+                match = Regex.Match(expression, @"encodeURIComponent\('(.+)'\)");
                 if (!match.Success)
                 {
                     throw new ArgumentException($"Error in regex match for @encodeURIComponent()");
                 }
 
                 string uriComponent = match.Groups[1].Value;
-                result = $"{Uri.EscapeUriString(uriComponent)}";
-                return false;
+
+                return @$"@encodeURIComponent(""{uriComponent}"")";             
             }
-            else if(expression.StartsWith("@guid("))
+            else if (expression.StartsWith("base64("))
             {
-                result = "{@guid(context)}";
-                return false;
+                match = Regex.Match(expression, @"base64\((.+)\)");
+                if (!match.Success)
+                {
+                    throw new ArgumentException($"Error in regex match for @base64()");
+                }
+
+                string stringComponent = ExpressionCompiler.ToStringInterpolation(match.Groups[1].Value);
+                return @$"@base64((string){(string)stringComponent})";
             }
-            else if (expression.StartsWith("@utcNow("))
+            else if (expression.StartsWith("guid("))
             {
-                result = "{@utcNow(context)}";
-                return false;
+                return "@guid(context)";
+            }
+            else if (expression.StartsWith("utcNow("))
+            {
+                return "@utcNow(context)";
             }
             else
             {
-                throw new ArgumentException($"Didn't recognize expression: {expression}.");
+                return expression;
+                // need this to call recursively
+                //throw new ArgumentException($"Didn't recognize expression: {expression}.");
             }
         }
 
@@ -198,9 +227,37 @@
             return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf(')');
         }
 
+        private static int FindThClosingParenthesisPosition(string str, int startIndex)
+        {
+            int counter = 0;
+            for (int index = startIndex; index < str.Length; index++)
+            {
+                if (str[index] == '(')
+                {
+                    counter++;
+                }
+
+                if (str[index] == ')')
+                {
+                    counter--;
+
+                    if (counter == 0)
+                    {
+                        return index;
+                    }
+                }
+            }
+            return str.Length;
+        }
+
         private static int FindTheFirstClosingBracketPosition(string str, int startIndex)
         {
             return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf(']');
+        }
+
+        private static int FindTheLastClosingBracketPosition(string str, int startIndex)
+        {
+            return startIndex + str.Substring(startIndex, str.Length - startIndex).LastIndexOf(']');
         }
 
         private static int FindTheFirstClosingCurlyBracePosition(string str, int startIndex)
@@ -208,10 +265,49 @@
             return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf('}');
         }
 
-        private static int FindTheLastClosingBracketPosition(string str, int startIndex)
+        private static int FindTheFirstOpenCurlyBracesPositionFromStartIndex(string str, int startIndex)
         {
-            return startIndex + str.Substring(startIndex, str.Length - startIndex).LastIndexOf(']');
+            int index = str.Substring(startIndex, str.Length - startIndex).IndexOf('{');
+            if (index < 0)
+            {
+                return str.Length;
+            }
+            return startIndex + index;
         }
+
+        private static int FindTheFirstAtSignPositionFromStartIndex(string str, int startIndex)
+        {
+            int index = str.Substring(startIndex, str.Length - startIndex).IndexOf('@');
+            if (index < 0)
+            {
+                return str.Length;
+            }
+            return startIndex + index;
+        }
+
+        private static int FindTheClosingIndex(string str, int openIndex)
+        {
+            int counter = 0;
+            for (int index = openIndex + 1; index < str.Length; index++)
+            {
+                if(str[index] == '(' || str[index] == '[' || str[index] == '{')
+                {
+                    counter++;
+                }
+
+                if (str[index] == ')' || str[index] == ']' || str[index] == '}')
+                {
+                    counter--;
+
+                    if (counter == 0 && index + 1 < str.Length && str[index + 1] != '[')
+                    {
+                        return index + 1;
+                    }
+                }               
+            }
+            return str.Length;
+        }
+
 
         public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
         {
@@ -224,5 +320,22 @@
             {"@guid", typeof(Guid)},
             {"@utcNow", typeof(DateTime)},
         };
+
+        public static Dictionary<string, string> BuildInContextlessFunctionStatementMap = new Dictionary<string, string>
+        {
+            {"@encodeURIComponent", "Uri.EscapeUriString(content)"},
+            { "@base64", "Convert.ToBase64String(Encoding.UTF8.GetBytes(content))"}
+        };
+
+        public static Dictionary<string, Type> BuildInContextlessFunctionTypeMap = new Dictionary<string, Type>
+        {
+            {"@encodeURIComponent", typeof(string)},
+            { "@base64", typeof(string)},
+        };
+
+        private static string RemoveChar(this string str, string c)
+        {
+            return str.Replace(c, string.Empty);
+        }
     }
 }
