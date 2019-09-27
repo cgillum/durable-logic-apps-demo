@@ -141,6 +141,14 @@
             return input;
         }
 
+        /// <summary>
+        /// Converts a workflow expression into a C# expression.
+        /// </summary>
+        /// <param name="expression">The expression to convert.</param>
+        /// <param name="result">The resulting C# string interpolation expression that can evaluate the workflow expression.</param>
+        /// <returns>
+        /// Returns <c>true</c> to continue evaluating the current expression or <c>false</c> if the expression is done evaluating.
+        /// </returns>
         private static bool ConvertToStringInterpolation(string expression, out JToken result)
         {
             Match match;
@@ -187,6 +195,12 @@
                 result = "{@utcNow(context)}";
                 return false;
             }
+            else if (expression.StartsWith("@triggerBody("))
+            {
+                // TODO: This doesn't currently work with expressions like "@triggerBody().name"
+                result = "{@triggerBody(context)}";
+                return false;
+            }
             else
             {
                 throw new ArgumentException($"Didn't recognize expression: {expression}.");
@@ -217,12 +231,14 @@
         {
             {"@guid", "context.NewGuid()"},
             {"@utcNow", "context.CurrentUtcDateTime"},
+            {"@triggerBody", "context.GetInput<JToken>()"},
         };
 
         public static Dictionary<string, Type> BuildInFunctionTypeMap = new Dictionary<string, Type>
         {
             {"@guid", typeof(Guid)},
             {"@utcNow", typeof(DateTime)},
+            {"@triggerBody", typeof(JToken)},
         };
     }
 }

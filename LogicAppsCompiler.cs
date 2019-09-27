@@ -23,7 +23,7 @@ namespace LogicApps
             { WorkflowActionType.ApiConnection, new ApiConnectionCodeGenerator() },
         };
 
-        public static void Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
+        public static ProjectArtifacts Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
         {
             // Resources for learning how to use Roslyn to generate code:
             // https://carlos.mendible.com/2017/03/02/create-a-class-with-net-core-and-roslyn/ (seems to be the most up-to-date)
@@ -50,10 +50,13 @@ namespace LogicApps
             @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Outputs"));
             @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Parameters"));
 
+            // Keep track of any build artifacts that are required (e.g. app settings)
+            var artifacts = new ProjectArtifacts();
+
             // Trigger functions are declared first
             foreach ((string name, WorkflowTrigger trigger) in doc.Definition.Triggers)
             {
-                @class = @class.AddMembers(CreateTriggerFunction(name, trigger, workflowName));
+                @class = @class.AddMembers(CreateTriggerFunction(name, trigger, workflowName, artifacts));
             }
 
             // Sort the actions based on their dependencies
@@ -85,10 +88,10 @@ namespace LogicApps
             // The one orchestrator function comes after the trigger(s)
             @class = @class.AddMembers(orchestrationMethod);
 
-            // All helper functions go next
+            // All action functions go next
             @class = @class.AddMembers(GetActionMethods(sortedActions).ToArray());
 
-            // All helper functions go next
+            // All built-in expression language functions go next
             @class = @class.AddMembers(GetBuildInMethod().ToArray());
 
             ns = ns.AddMembers(@class);
@@ -98,6 +101,8 @@ namespace LogicApps
             workspace.Options.WithChangedOption(CSharpFormattingOptions.IndentBraces, true);
             SyntaxNode formattedNode = Formatter.Format(cu, workspace, options);
             formattedNode.WriteTo(codeWriter);
+
+            return artifacts;
         }
 
         static FieldDeclarationSyntax CreateStaticDictionary<TKey, TValue>(string fieldName)
@@ -115,12 +120,17 @@ namespace LogicApps
             return field;
         }
 
-        static MethodDeclarationSyntax CreateTriggerFunction(string functionName, WorkflowTrigger trigger, string workflowName)
+        static MethodDeclarationSyntax CreateTriggerFunction(
+            string functionName,
+            WorkflowTrigger trigger,
+            string workflowName,
+            ProjectArtifacts artifacts)
         {
+            MethodDeclarationSyntax function;
             switch (trigger.Type)
             {
-                case WorkflowTriggerType.Recurrence:
-                    MethodDeclarationSyntax function = CreateFunction("async Task", $"{functionName}Trigger", functionName)
+                case WorkflowActionType.Recurrence:
+                    function = CreateFunction("async Task", $"{functionName}Trigger", functionName)
                         .AddParameterListParameters(
                             CreateBindingParameter(
                                 "TimerTrigger",
@@ -136,10 +146,59 @@ namespace LogicApps
                             SF.ParseStatement($"string instanceId = await client.StartNewAsync(\"{workflowName}\", null);\n"),
                             SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
                         );
-                    return function;
+                    break;
+                case WorkflowActionType.Binding:
+                    function = CreateFunction("async Task", $"{functionName}Trigger", functionName)
+                        .AddParameterListParameters(
+                            GetTriggerBindingParameters(trigger, artifacts),
+                            CreateBindingParameter(
+                                "DurableClient",
+                                "IDurableClient",
+                                "client"),
+                            CreateParameter("ILogger", "log"))
+                        .AddBodyStatements(
+                            SF.ParseStatement($"string instanceId = await client.StartNewAsync(\"{workflowName}\", input);\n"),
+                            SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
+                        );
+                    break;
                 default:
                     throw new ArgumentException($"Trigger type '{trigger.Type}' is not supported.");
             }
+
+            return function;
+        }
+
+        static ParameterSyntax GetTriggerBindingParameters(WorkflowTrigger trigger, ProjectArtifacts artifacts)
+        {
+            JObject inputs = trigger.Inputs;
+            string triggerType = inputs["type"].Value<string>();
+
+            string attributeName;
+            string attributeParameters;
+            string parameterType = "string";
+
+            switch (triggerType)
+            {
+                case "queueTrigger":
+                    attributeName = "QueueTrigger";
+                    attributeParameters = $@"""{inputs["queueName"]}"", Connection = ""{inputs["connection"]}""";
+                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.Storage"] = "3.0.8";
+                    break;
+                case "blobTrigger":        // TODO
+                case "eventHubTrigger":    // TODO
+                case "serviceBusTrigger":  // TODO
+                case "cosmosDBTrigger":    // TODO
+                default:
+                    throw new NotSupportedException($"Binding trigger type '{triggerType}' is not supported.");
+            }
+
+            // TODO: Check for other known app settings
+            if (inputs.TryGetValue("connection", out JToken appSettingName))
+            {
+                artifacts.AppSettings.Add((string)appSettingName);
+            }
+
+            return CreateBindingParameter(attributeName, parameterType, "input", attributeParameters);
         }
 
         static IEnumerable<StatementSyntax> GenerateOrchestratorStatements(IReadOnlyList<(string, WorkflowAction)> sortedActions)
@@ -218,11 +277,10 @@ namespace LogicApps
         {
             foreach (var buildInFunction in ExpressionCompiler.BuildInFunctionTypeMap)
             {
-
                 string statement = $"return {ExpressionCompiler.BuildInFunctionStatementMap[buildInFunction.Key]};";
                 MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
-                .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
-                .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+                    .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
+                    .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
 
                 yield return method;
             }
