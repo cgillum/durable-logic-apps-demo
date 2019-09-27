@@ -1,0 +1,46 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Compose": {
+        "inputs": {
+          "currentDateTimeUtc": "@utcNow()",
+          "someId": "@guid()",
+          "someConstant": 28,
+          "someString": "hardCodeString",
+          "listofGuids": [ "@guid()", "@guid()", "@guid()" ]
+        },
+        "runAfter": {},
+        "type": "Compose"
+      },
+      "HTTP": {
+        "inputs": {
+          "body": "@outputs('Compose')",
+          "method": "POST",
+          "uri": "https://postb.in/1569012102347-2005884046666"
+        },
+        "runAfter": {
+          "Compose": [
+            "Succeeded"
+          ]
+        },
+        "type": "Http"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "parameters": {},
+    "triggers": {
+      "OnAzureQueueMessage": {
+        "inputs": {
+          "type": "queueTrigger",
+          "direction": "in",
+          "name": "myQueueItem",
+          "queueName": "myqueue-items",
+          "connection": "MyStorageConnectionString"
+        },
+        "type": "Binding"
+      }
+    }
+  }
+}

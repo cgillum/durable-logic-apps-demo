@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "LogicAppsTesting": {
+      "commandName": "Project",
+      "commandLineArgs": "--proj --force"
+    }
+  }
+}

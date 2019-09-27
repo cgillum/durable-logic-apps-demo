@@ -9,6 +9,7 @@
         AppendToArrayVariable,
         AppendToStringVariable,
         Batch,
+        Binding,
         Compose,
         DecrementVariable,
         Expression,

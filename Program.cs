@@ -2,8 +2,10 @@
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Xml.Linq;
 using LogicApps.Schema;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace LogicApps.TestApp
 {
@@ -14,7 +16,8 @@ namespace LogicApps.TestApp
             // These JSON files are the logic apps that we're testing
             //(string fileName, string workflowName) = ("01.simple-http.json", "ComposeHttp");
             //(string fileName, string workflowName) = ("03.foreach.json", "ForEach");
-            (string fileName, string workflowName) = ("04.teams-connection.json", "TeamsConnection");
+            //(string fileName, string workflowName) = ("04.teams-connection.json", "TeamsConnection");
+            (string fileName, string workflowName) = ("05.function-trigger.json", "QueueBindings");
 
             string sample1FilePath = Path.Join(Environment.CurrentDirectory, "Samples", fileName);
             Console.WriteLine($"Loading Logic App '{workflowName}' workflow definition from {sample1FilePath}...");
@@ -57,10 +60,10 @@ namespace LogicApps.TestApp
 
             Directory.CreateDirectory(projectDir);
 
-            WriteSourceCode(projectDir, workflowName, doc);
-            WriteProjectFile(projectDir, workflowName);
+            ProjectArtifacts artifacts = WriteSourceCode(projectDir, workflowName, doc);
+            WriteProjectFile(projectDir, workflowName, artifacts);
             WriteHostJsonFile(projectDir, workflowName);
-            WriteLocalSettingsJsonFile(projectDir);
+            WriteLocalSettingsJsonFile(projectDir, artifacts);
 
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Green;
@@ -68,14 +71,14 @@ namespace LogicApps.TestApp
             Console.ResetColor();
         }
 
-        static void WriteSourceCode(string projectDirectory, string workflowName, WorkflowDocument doc)
+        static ProjectArtifacts WriteSourceCode(string projectDirectory, string workflowName, WorkflowDocument doc)
         {
             string outputFilePath = Path.Combine(projectDirectory, workflowName + ".cs");
             Console.WriteLine($"Generating {outputFilePath}...");
 
             using (var writer = File.CreateText(outputFilePath))
             {
-                LogicAppsCompiler.Compile(workflowName, doc, writer);
+                return LogicAppsCompiler.Compile(workflowName, doc, writer);
             }
         }
 
@@ -94,7 +97,7 @@ namespace LogicApps.TestApp
             }
         }
 
-        static void WriteLocalSettingsJsonFile(string projectDirectory)
+        static void WriteLocalSettingsJsonFile(string projectDirectory, ProjectArtifacts artifacts)
         {
             string fileName = "local.settings.json";
             string outputFilePath = Path.Combine(projectDirectory, fileName);
@@ -103,22 +106,45 @@ namespace LogicApps.TestApp
             string localSettingsText = LoadResourceText(fileName);
             localSettingsText = localSettingsText.Replace("%StorageConnectionString%", "UseDevelopmentStorage=true");
 
+            JObject settings = JObject.Parse(localSettingsText);
+            JObject appSettings = (JObject)settings["Values"];
+            
+            foreach (string appSettingName in artifacts.AppSettings)
+            {
+                if (!appSettings.TryGetValue(appSettingName, out _))
+                {
+                    appSettings[appSettingName] = "[Placeholder]";
+                }
+            }
+
             using (StreamWriter writer = File.CreateText(outputFilePath))
             {
-                writer.Write(localSettingsText);
+                writer.Write(settings.ToString(Formatting.Indented));
             }
         }
 
-        static void WriteProjectFile(string projectDirectory, string workflowName)
+        static void WriteProjectFile(string projectDirectory, string workflowName, ProjectArtifacts artifacts)
         {
             string outputFilePath = Path.Combine(projectDirectory, $"Durable{workflowName}.csproj");
             Console.WriteLine($"Generating {outputFilePath}...");
 
             string fileName = "ProjectFile.xml";
             string projectFileText = LoadResourceText(fileName);
+
+            XElement xml = XElement.Parse(projectFileText);
+            XElement packageReferencesXml = xml.Element("ItemGroup");
+
+            foreach ((string package, string version) in artifacts.Extensions)
+            {
+                packageReferencesXml.Add(
+                    new XElement("PackageReference",
+                        new XAttribute("Include", package),
+                        new XAttribute("Version", version)));
+            }
+
             using (StreamWriter writer = File.CreateText(Path.Combine(projectDirectory, outputFilePath)))
             {
-                writer.Write(projectFileText);
+                writer.Write(xml);
             }
         }
 

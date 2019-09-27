@@ -12,6 +12,6 @@ namespace LogicApps.Schema
         public WorkflowRecurrence Recurrence { get; set; }
 
         [JsonProperty("type")]
-        public WorkflowTriggerType Type { get; private set; }
+        public WorkflowActionType Type { get; private set; }
     }
 }
