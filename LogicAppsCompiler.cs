@@ -34,6 +34,7 @@ namespace LogicApps
                 SF.UsingDirective(SF.IdentifierName("System")),
                 SF.UsingDirective(SF.IdentifierName("System.Collections.Generic")),
                 SF.UsingDirective(SF.IdentifierName("System.Net.Http")),
+                SF.UsingDirective(SF.IdentifierName("System.Text")),
                 SF.UsingDirective(SF.IdentifierName("System.Threading.Tasks")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.DurableTask")),
@@ -70,7 +71,7 @@ namespace LogicApps
             if (doc.ConnectionToken != null)
             {
                 orchestratorStatements.Add(
-                    SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertToStringInterpolation(doc.ConnectionToken["value"])});")
+                    SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertJTokenToStringInterpolation(doc.ConnectionToken["value"])});")
                         .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed));
             }
 
@@ -185,7 +186,11 @@ namespace LogicApps
                     artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.Storage"] = "3.0.8";
                     break;
                 case "blobTrigger":        // TODO
-                case "eventHubTrigger":    // TODO
+                case "eventHubTrigger":
+                    attributeName = "EventHubTrigger";
+                    attributeParameters = $@"""{inputs["eventHubName"]}"", Connection = ""{inputs["connection"]}""";
+                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.3";
+                    break;
                 case "serviceBusTrigger":  // TODO
                 case "cosmosDBTrigger":    // TODO
                 default:
@@ -281,6 +286,16 @@ namespace LogicApps
                 MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
                     .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
                     .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+
+                yield return method;
+            }
+
+            foreach (var buildInFunction in ExpressionCompiler.BuildInContextlessFunctionTypeMap)
+            {
+                string statement = $"return {ExpressionCompiler.BuildInContextlessFunctionStatementMap[buildInFunction.Key]};";
+                MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
+                .AddParameterListParameters(CreateParameter("string", "content"))
+                .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
 
                 yield return method;
             }
