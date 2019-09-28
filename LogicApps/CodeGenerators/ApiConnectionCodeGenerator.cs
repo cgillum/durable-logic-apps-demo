@@ -11,8 +11,6 @@
 
         public override IEnumerable<string> GenerateStatements(JToken inputs)
         {
-            // yield return "throw new NotImplementedException();";
-
             string code = $@"                
                 ManagedIdentityTokenSource managedIdentityTokenSource = new ManagedIdentityTokenSource(""https://management.core.windows.net"");
                 string connection = {ExpressionCompiler.ConvertJTokenToStringInterpolation(inputs["host"]["connection"]["name"])};
