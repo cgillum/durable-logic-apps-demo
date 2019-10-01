@@ -9,7 +9,7 @@ namespace LogicApps.LogicApps.CodeGenerators
     {
         public override ActionType ActionType => ActionType.Http;
 
-        public override IEnumerable<string> GenerateStatements(JToken input)
+        protected override IEnumerable<string> OnGenerateStatements(JToken input, ExpressionContext context)
         {
             JObject requestInputs = (JObject)input;
 
@@ -24,7 +24,7 @@ namespace LogicApps.LogicApps.CodeGenerators
                 var uri = new Uri(""{uri}"");
                 var headers = new Dictionary<string, StringValues>(StringComparer.OrdinalIgnoreCase);
                 headers.Add(""Content-Type"", ""application/json"");
-                var content = {ExpressionCompiler.ConvertJTokenToStringInterpolation(body)};
+                var content = {ExpressionCompiler.ConvertJTokenToStringInterpolation(body, context)};
                 var request = new DurableHttpRequest(method, uri, headers, content);
                 DurableHttpResponse response = await context.CallHttpAsync(request);
                 return new JObject {{ {{ ""statusCode"", (int)response.StatusCode }}, {{ ""headers"", JObject.FromObject(response.Headers) }}, {{ ""body"", response.Content }} }};

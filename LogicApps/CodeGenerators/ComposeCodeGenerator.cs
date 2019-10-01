@@ -7,16 +7,16 @@ namespace LogicApps.LogicApps.CodeGenerators
     {
         public override ActionType ActionType => ActionType.Inline;
 
-        public override IEnumerable<string> GenerateStatements(JToken input)
+        protected override IEnumerable<string> OnGenerateStatements(JToken input, ExpressionContext context)
         {
             string jsonStringLiteral;
             if (input.Type == JTokenType.String)
             {
-                jsonStringLiteral = ExpressionCompiler.ConvertStringToStringInterpolation((string)input);
+                jsonStringLiteral = ExpressionCompiler.ConvertStringToStringInterpolation((string)input, context);
             }
             else
             {
-                jsonStringLiteral = ExpressionCompiler.ConvertJTokenToStringInterpolation(input);
+                jsonStringLiteral = ExpressionCompiler.ConvertJTokenToStringInterpolation(input, context);
             }
 
             yield return $"return JToken.Parse({jsonStringLiteral});";

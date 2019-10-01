@@ -48,10 +48,6 @@ namespace LogicApps
 
             var @class = SF.ClassDeclaration(workflowName).AddModifiers(SF.Token(SyntaxKind.PublicKeyword), SF.Token(SyntaxKind.StaticKeyword));
 
-            // Fields for storing outputs and variables
-            @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Outputs"));
-            @class = @class.AddMembers(CreateStaticDictionary<string, JToken>("Parameters"));
-
             // Keep track of any build artifacts that are required (e.g. app settings)
             var artifacts = new ProjectArtifacts();
 
@@ -67,16 +63,21 @@ namespace LogicApps
                 a => a.Dependencies.Select(p => p.Key).ToList(),
                 a => a.Name).Select(a => (a.Name, a)).ToList().AsReadOnly();
 
-            // insert connection token if specified in workflow.json 
             var orchestratorStatements = new List<StatementSyntax>();
+            var expressionContext = new ExpressionContext();
+
+            // insert connection token if specified in workflow.json 
             if (doc.ConnectionToken != null)
             {
                 orchestratorStatements.Add(
-                    SF.ParseStatement($@"Parameters[""$connections""] = JToken.Parse({ExpressionCompiler.ConvertJTokenToStringInterpolation(doc.ConnectionToken["value"])});")
+                    SF.ParseStatement($"JToken {Utils.GetWorkflowParameterVariableName("connections")} = JToken.Parse({ExpressionCompiler.ConvertJTokenToStringInterpolation(doc.ConnectionToken["value"], expressionContext)});")
                         .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed));
             }
 
-            orchestratorStatements.AddRange(GenerateOrchestratorStatements(sortedActions));
+            var parameterLists = new Dictionary<string, string[]>();
+            MethodDeclarationSyntax[] actionMethods = GetActionMethods(sortedActions, expressionContext, artifacts).ToArray();
+
+            orchestratorStatements.AddRange(GenerateOrchestratorStatements(sortedActions, expressionContext));
 
             var orchestrationMethod = CreateFunction("async Task", "Orchestrator", workflowName)
                 .AddParameterListParameters(
@@ -91,10 +92,10 @@ namespace LogicApps
             @class = @class.AddMembers(orchestrationMethod);
 
             // All action functions go next
-            @class = @class.AddMembers(GetActionMethods(sortedActions, artifacts).ToArray());
+            @class = @class.AddMembers(actionMethods);
 
             // All built-in expression language functions go next
-            @class = @class.AddMembers(GetBuildInMethod().ToArray());
+            @class = @class.AddMembers(GetBuildInMethods().ToArray());
 
             ns = ns.AddMembers(@class);
             cu = cu.AddMembers(ns);
@@ -105,21 +106,6 @@ namespace LogicApps
             formattedNode.WriteTo(codeWriter);
 
             return artifacts;
-        }
-
-        static FieldDeclarationSyntax CreateStaticDictionary<TKey, TValue>(string fieldName)
-        {
-            string typeName = $"Dictionary <{typeof(TKey).Name}, {typeof(TValue).Name}>";
-            VariableDeclarationSyntax variable = SF.VariableDeclaration(SF.ParseTypeName(typeName))
-                .AddVariables(SF.VariableDeclarator(fieldName)
-                    .WithInitializer(SF.EqualsValueClause(SF.ObjectCreationExpression(SF.ParseTypeName($"{typeName}()")))));
-
-            FieldDeclarationSyntax field = SF.FieldDeclaration(variable).AddModifiers(
-                SF.Token(SyntaxKind.PrivateKeyword),
-                SF.Token(SyntaxKind.StaticKeyword),
-                SF.Token(SyntaxKind.ReadOnlyKeyword));
-
-            return field;
         }
 
         static MethodDeclarationSyntax CreateTriggerFunction(
@@ -191,7 +177,7 @@ namespace LogicApps
                     attributeParameters = $@"""{inputs["eventHubName"]}"", Connection = ""{inputs["connection"]}""";
                     artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.3";
                     break;
-                case "blobTrigger":  // TODO
+                case "blobTrigger":        // TODO
                 case "serviceBusTrigger":  // TODO
                 case "cosmosDBTrigger":    // TODO
                 default:
@@ -229,7 +215,7 @@ namespace LogicApps
                     attributeParameters = $@"""{inputs["eventHubName"]}"", Connection = ""{inputs["connection"]}""";
                     artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.3";
                     break;
-                case "blob":  // TODO
+                case "blob":        // TODO
                 case "serviceBus":  // TODO
                 case "cosmosDB":    // TODO
                 default:
@@ -245,29 +231,51 @@ namespace LogicApps
             return CreateBindingParameter(attributeName, parameterType, parameterName, attributeParameters);
         }
 
-        static IEnumerable<StatementSyntax> GenerateOrchestratorStatements(IReadOnlyList<(string, WorkflowAction)> sortedActions)
-        {           
+        static IEnumerable<StatementSyntax> GenerateOrchestratorStatements(IReadOnlyList<(string, WorkflowAction)> sortedActions, ExpressionContext context)
+        {
+            if (context.IsTriggerBodyReferenced)
+            {
+                yield return SF.ParseStatement("JToken triggerBody = context.GetInput<JToken>();").WithTrailingTrivia(SF.CarriageReturnLineFeed);
+            }
+
             foreach ((string name, WorkflowAction action) in sortedActions)
             {
-                string sanitizedName = SanitizeActionName(name);
+                string sanitizedName = Utils.SanitizeName(name);
 
                 ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
                 string resultVariable = $"resultOf{sanitizedName}";
 
+                var parameterList = new LinkedList<string>(context.GetParameters(name).Select(p => p.name));
+                string paramListString;
+
                 StatementSyntax statement;
                 switch (generator.ActionType)
                 {
-                    // CONSIDER: Create intermediate variables for easier debugging
                     case ActionType.Inline:
-                        statement = SF.ParseStatement($@"JToken {resultVariable} = {sanitizedName}(context);");
+                        parameterList.AddFirst("context");
+                        paramListString = string.Join(", ", parameterList);
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = {sanitizedName}({paramListString});");
                         break;
                     case ActionType.Http:
-                        statement = SF.ParseStatement($@"JToken {resultVariable} = await {sanitizedName}(context);");
+                        parameterList.AddFirst("context");
+                        paramListString = string.Join(", ", parameterList);
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = await {sanitizedName}({paramListString});");
                         break;
                     case ActionType.Activity:
-                        // TODO: If an activity needs access to variables, outputs, or parameters, then we would need to pass them 
-                        //       as a parameter to the activity function. Not yet clear if we need activity functions at all, though.
-                        statement = SF.ParseStatement($@"JToken {resultVariable} = await context.CallActivityAsync<JToken>(""{sanitizedName}"", null);");
+                        if (parameterList.Count == 0)
+                        {
+                            paramListString = "null";
+                        }
+                        else if (parameterList.Count == 1)
+                        {
+                            paramListString = parameterList.Single();
+                        }
+                        else
+                        {
+                            paramListString = "new [] { " + string.Join(", ", parameterList) + " }";
+                        }
+
+                        statement = SF.ParseStatement($@"JToken {resultVariable} = await context.CallActivityAsync<JToken>(""{sanitizedName}"", {paramListString});");
                         break;
                     default:
                         throw new NotImplementedException($"Action type '{generator.ActionType}' is not supported.");
@@ -276,18 +284,21 @@ namespace LogicApps
                 // Add extra whitespace to make the generated code easier to read
                 // TODO: Need to make sure the whole file is consistent in terms of using \r\n or \n for newlines
                 yield return statement.WithTrailingTrivia(SF.CarriageReturnLineFeed);
-                yield return SF.ParseStatement($@"Outputs[""{name}""] = {resultVariable};")
-                    .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed);
             }
         }
 
-        static IEnumerable<MethodDeclarationSyntax> GetActionMethods(IReadOnlyList<(string, WorkflowAction)> sortedActions, ProjectArtifacts artifacts)
+        static IEnumerable<MethodDeclarationSyntax> GetActionMethods(
+            IReadOnlyList<(string, WorkflowAction)> sortedActions,
+            ExpressionContext expressionContext,
+            ProjectArtifacts artifacts)
         {
-            foreach ((string name, WorkflowAction action) in sortedActions)
+            foreach ((string actionName, WorkflowAction action) in sortedActions)
             {
                 ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
-                string sanitizedName = SanitizeActionName(name);
+                string sanitizedName = Utils.SanitizeName(actionName);
+                expressionContext.CurrentActionName = actionName;
 
+                bool hasOutputBinding = false;
                 MethodDeclarationSyntax method;
                 switch (generator.ActionType)
                 {
@@ -295,23 +306,22 @@ namespace LogicApps
                         method = CreateStaticMethod("JToken", sanitizedName)
                                     .AddParameterListParameters(
                                         CreateParameter("IDurableOrchestrationContext", "context"));
+                        expressionContext.IsOrchestration = true;
                         break;
                     case ActionType.Http:
                         method = CreateStaticMethod("async Task<JToken>", sanitizedName)
                                     .AddParameterListParameters(
                                         CreateParameter("IDurableOrchestrationContext", "context"));
+                        expressionContext.IsOrchestration = true;
                         break;
                     case ActionType.Activity:
                         method = CreateFunction("JToken", sanitizedName, sanitizedName)
                                     .AddParameterListParameters(
                                         CreateBindingParameter("ActivityTrigger", "IDurableActivityContext", "context"));
+                        expressionContext.IsOrchestration = false;
 
                         // add output binding parameter for binding action
-                        if (action.Type == WorkflowActionType.Binding)
-                        {
-                            var parameter = GetOutputBindingParameters(action, artifacts);
-                            method = method.AddParameterListParameters(parameter.AddModifiers(SF.Token(SyntaxKind.OutKeyword)));
-                        }
+                        hasOutputBinding = action.Type == WorkflowActionType.Binding;
 
                         break;
                     default:
@@ -319,30 +329,54 @@ namespace LogicApps
                 }
 
                 // The generators will dynamically produce code that we inject into the method body.
-                yield return method.AddBodyStatements(
-                    generator.GenerateStatements(action.Inputs)
+                // This will also populate the expression context with any parameter information.
+                method = method.AddBodyStatements(
+                    generator.GenerateStatements(actionName, action.Inputs, expressionContext)
                         .Select(codeLine => SF.ParseStatement(codeLine).WithTrailingTrivia(SF.CarriageReturnLineFeed)).ToArray());
+
+                // add input parameters for methods called directly by the orchestrator function
+                if (expressionContext.IsOrchestration)
+                {
+                    foreach ((string inputType, string inputName) in expressionContext.GetParameters(actionName))
+                    {
+                        var parameter = CreateParameter(inputType, inputName);
+                        method = method.AddParameterListParameters(parameter);
+                    }
+                }
+
+                // out output parameters
+                if (hasOutputBinding)
+                {
+                    var parameter = GetOutputBindingParameters(action, artifacts);
+                    method = method.AddParameterListParameters(parameter.AddModifiers(SF.Token(SyntaxKind.OutKeyword)));
+                }
+
+                yield return method;
             }
         }
 
-        static IEnumerable<MethodDeclarationSyntax> GetBuildInMethod()
+        static IEnumerable<MethodDeclarationSyntax> GetBuildInMethods()
         {
             foreach (var buildInFunction in ExpressionCompiler.BuildInFunctionTypeMap)
             {
-                string statement = $"return {ExpressionCompiler.BuildInFunctionStatementMap[buildInFunction.Key]};";
+                string expression = ExpressionCompiler.BuildInFunctionExpressionMap[buildInFunction.Key];
                 MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
                     .AddParameterListParameters(CreateParameter("IDurableOrchestrationContext", "context"))
-                    .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+                    .WithExpressionBody(SF.ArrowExpressionClause(SF.ParseExpression(expression)))
+                    .WithSemicolonToken(SF.Token(SyntaxKind.SemicolonToken))
+                    .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed);
 
                 yield return method;
             }
 
             foreach (var buildInFunction in ExpressionCompiler.BuildInContextlessFunctionTypeMap)
             {
-                string statement = $"return {ExpressionCompiler.BuildInContextlessFunctionStatementMap[buildInFunction.Key]};";
+                string expression = ExpressionCompiler.BuildInContextlessFunctionExpressionMap[buildInFunction.Key];
                 MethodDeclarationSyntax method = CreateStaticMethod(buildInFunction.Value.Name, buildInFunction.Key)
-                .AddParameterListParameters(CreateParameter("string", "content"))
-                .AddBodyStatements(SF.ParseStatement(statement).WithTrailingTrivia(SF.CarriageReturnLineFeed));
+                    .AddParameterListParameters(CreateParameter("string", "input"))
+                    .WithExpressionBody(SF.ArrowExpressionClause(SF.ParseExpression(expression)))
+                    .WithSemicolonToken(SF.Token(SyntaxKind.SemicolonToken))
+                    .WithTrailingTrivia(SF.CarriageReturnLineFeed, SF.CarriageReturnLineFeed);
 
                 yield return method;
             }
@@ -412,11 +446,6 @@ namespace LogicApps
                 default:
                     throw new ArgumentException($"Recurrence frequency '{recurrence.Frequency}' is not supported.");
             }
-        }
-
-        static string SanitizeActionName(string actionName)
-        {
-            return actionName.Replace("(", "_").Replace(")", "_");
         }
     }
 }

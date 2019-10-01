@@ -7,25 +7,35 @@
 
     static class ExpressionCompiler
     {
-        public static string ConvertJTokenToStringInterpolation(JToken token)
+        public static string ConvertJTokenToStringInterpolation(JToken token, ExpressionContext context)
         {
-            string interpolated = ToJsonString(token, 0);
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            string interpolated = ToJsonString(token, 0, context);
             return $@"$@""{interpolated}""";
         }
 
-        public static string ConvertStringToStringInterpolation(string input)
+        public static string ConvertStringToStringInterpolation(string input, ExpressionContext context)
         {
-            return $@"$@""""""{ToJsonString(input, 0)}""""""";
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            return $@"$@""""""{ToJsonString(input, 0, context)}""""""";
         }
 
-        private static string ToJsonString(JToken input, int level)
+        private static string ToJsonString(JToken input, int level, ExpressionContext context)
         {
             if (input.Type == JTokenType.Property)
             {
                 JProperty jProperty = (JProperty)input;
                 if (jProperty.HasValues)
                 {
-                    return $@"""""{jProperty.Name}"""": {ToJsonString(jProperty.Value, ++level)}";
+                    return $@"""""{jProperty.Name}"""": {ToJsonString(jProperty.Value, ++level, context)}";
                 }
                 else
                 {
@@ -38,7 +48,7 @@
                 ++level;
                 foreach (var token in input)
                 {
-                    results.Add(ToJsonString(token, level));
+                    results.Add(ToJsonString(token, level, context));
                 }
                 return $@"{{{{{string.Join(",", results)}}}}}";
             }
@@ -47,14 +57,14 @@
                 List<string> results = new List<string>();
                 foreach (var token in input)
                 {
-                    results.Add(ToJsonString(token, level));
+                    results.Add(ToJsonString(token, level, context));
                 }
                 return $@"[{string.Join(",", results)}]";
             }
             else
             {
                 // reach the bottom layer and should expand the value            
-                JToken value = ParseToken(input).ToString();
+                JToken value = ParseToken(input, context).ToString();
 
                 if (level == 0)
                 {
@@ -67,7 +77,7 @@
             }
         }
 
-        private static JToken ParseToken(JToken input)
+        private static JToken ParseToken(JToken input, ExpressionContext context)
         {
             // Check to see if this is an expression
             if (input.Type == JTokenType.String)
@@ -76,7 +86,6 @@
                 if (stringBody?.Length > 0)
                 {
                     int i = 0;
-                    JToken tempResult = input;
                     string tempString = "";
                     stringBody = stringBody.RemoveChar("{").RemoveChar("}");
 
@@ -88,9 +97,9 @@
                             // append a open brace to indicate here begins a string interpolation
                             tempString += '{';
 
-                            // pass the expression without @ sign, ex: @utcNow() => pass in utcNow() into ToStringInterpolation
-                            int endIndex = FindThClosingParenthesisPosition(stringBody, i);
-                            tempString += ToStringInterpolation(stringBody.Substring(i + 1, endIndex - i));
+                            // pass the expression without @ sign, ex: @utcNow() => pass in utcNow() into ToCSharpExpression()
+                            int endIndex = FindTheClosingParenthesisPosition(stringBody, i);
+                            tempString += ToCSharpExpression(stringBody.Substring(i + 1, endIndex - i), context);
 
                             i = endIndex + 1;
                             continue;
@@ -120,25 +129,26 @@
         /// <returns>
         /// Returns current expression
         /// </returns>
-        private static string ToStringInterpolation(string expression)
+        private static string ToCSharpExpression(string expression, ExpressionContext context)
         {
             Match match;
             if (expression.StartsWith("outputs("))
             {
                 match = Regex.Match(expression, @"outputs\('(\w+)'\)");
                 string outputName = match.Groups[1].Value;
-                return $@"@Outputs[""{outputName}""]";
+                return context.AddParameter("JToken", Utils.GetWorkflowResultVariableName(outputName));
             }
             else if (expression.StartsWith("parameters("))
             {
                 match = Regex.Match(expression, @"parameters\('(\$\w+)'\)");
                 string parameterName = match.Groups[1].Value;
-                return $@"@Parameters[""{parameterName}""]";
+                return context.AddParameter("JToken", Utils.GetWorkflowParameterVariableName(parameterName));
             }
             else if (expression.StartsWith("triggerBody("))
             {
                 // TODO: This doesn't currently work with expressions like "@triggerBody().name"
-                return "@triggerBody(context)";
+                context.IsTriggerBodyReferenced = true;
+                return context.AddParameter("JToken", "triggerBody");
             }
             else if (expression.StartsWith("encodeURIComponent("))
             {
@@ -163,15 +173,15 @@
                 // has to call recursively on this function to support, but current base case throw instead return
                 //ex code: string stringComponent = ExpressionCompiler.ToStringInterpolation(match.Groups[1].Value);
                 string stringComponent = match.Groups[1].Value;
-                return $@"@base64((string){(string)stringComponent})";
+                return $@"@base64((string){stringComponent})";
             }
             else if(expression.StartsWith("guid("))
             {
-                return "{@guid(context)}";
+                return context.IsOrchestration ? "@guid(context)" : "@guid(null)";
             }
             else if (expression.StartsWith("utcNow("))
             {
-                return "{@utcNow(context)}";
+                return context.IsOrchestration ? "@utcNow(context)" : "@utcNow(null)";
             }
             else
             {
@@ -179,29 +189,27 @@
             }
         }
 
-        public static Dictionary<string, string> BuildInFunctionStatementMap = new Dictionary<string, string>
+        public static Dictionary<string, string> BuildInFunctionExpressionMap = new Dictionary<string, string>
         {
-            {"@guid", "context.NewGuid()"},
-            {"@utcNow", "context.CurrentUtcDateTime"},
-            {"@triggerBody", "context.GetInput<JToken>()"},
+            { "@guid", "context?.NewGuid() ?? Guid.NewGuid()" },
+            { "@utcNow", "context?.CurrentUtcDateTime ?? DateTime.UtcNow" },
         };
 
         public static Dictionary<string, Type> BuildInFunctionTypeMap = new Dictionary<string, Type>
         {
-            {"@guid", typeof(Guid)},
-            {"@utcNow", typeof(DateTime)},
-            {"@triggerBody", typeof(JToken)},
+            { "@guid", typeof(Guid) },
+            { "@utcNow", typeof(DateTime) },
         };
 
-        public static Dictionary<string, string> BuildInContextlessFunctionStatementMap = new Dictionary<string, string>
+        public static Dictionary<string, string> BuildInContextlessFunctionExpressionMap = new Dictionary<string, string>
         {
-            {"@encodeURIComponent", "Uri.EscapeUriString(content)"},
-            { "@base64", "Convert.ToBase64String(Encoding.UTF8.GetBytes(content))"}
+            { "@encodeURIComponent", "Uri.EscapeUriString(input)" },
+            { "@base64", "Convert.ToBase64String(Encoding.UTF8.GetBytes(input))" }
         };
 
         public static Dictionary<string, Type> BuildInContextlessFunctionTypeMap = new Dictionary<string, Type>
         {
-            {"@encodeURIComponent", typeof(string)},
+            { "@encodeURIComponent", typeof(string) },
             { "@base64", typeof(string)},
         };
 
@@ -244,7 +252,7 @@
             return startIndex + index;
         }
 
-        private static int FindThClosingParenthesisPosition(string str, int startIndex)
+        private static int FindTheClosingParenthesisPosition(string str, int startIndex)
         {
             int counter = 0;
             for (int index = startIndex; index < str.Length; index++)
@@ -288,27 +296,6 @@
                 }
             }
             return str.Length;
-        }
-
-
-        private static int FindTheFirstClosingParenthesisPosition(string str, int startIndex)
-        {
-            return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf(')');
-        }
-
-        private static int FindTheFirstClosingBracketPosition(string str, int startIndex)
-        {
-            return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf(']');
-        }
-
-        private static int FindTheFirstClosingCurlyBracePosition(string str, int startIndex)
-        {
-            return startIndex + str.Substring(startIndex, str.Length - startIndex).IndexOf('}');
-        }
-
-        private static int FindTheLastClosingBracketPosition(string str, int startIndex)
-        {
-            return startIndex + str.Substring(startIndex, str.Length - startIndex).LastIndexOf(']');
         }
     }
 }

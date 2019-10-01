@@ -4,7 +4,9 @@
     "actions": {
       "Compose": {
         "inputs": {
-          "queueMessage": "@triggerBody()"
+          "queueMessage": "@triggerBody()",
+          "timestamp": "@utcNow()",
+          "guid": "@guid()"
         },
         "runAfter": {},
         "type": "Compose"
@@ -21,6 +23,22 @@
           ]
         },
         "type": "Http"
+      },
+      "EnqueueResponse": {
+        "inputs": {
+          "content": "@outputs('HTTP')",
+          "type": "queue",
+          "direction": "out",
+          "name": "outputMessage",
+          "queueName": "demo-output",
+          "connection": "MyStorageConnectionString"
+        },
+        "runAfter": {
+          "HTTP": [
+            "Succeeded"
+          ]
+        },
+        "type": "Binding"
       }
     },
     "contentVersion": "1.0.0.0",
@@ -31,8 +49,8 @@
         "inputs": {
           "type": "queueTrigger",
           "direction": "in",
-          "name": "myQueueItem",
-          "queueName": "myqueue-items",
+          "name": "inputMessage",
+          "queueName": "demo-input",
           "connection": "MyStorageConnectionString"
         },
         "type": "Binding"

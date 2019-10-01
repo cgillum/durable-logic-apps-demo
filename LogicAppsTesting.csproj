@@ -39,7 +39,7 @@
     <None Update="Samples\04.teams-connection.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="Samples\05.function-trigger.json">
+    <None Update="Samples\05.queue-binding.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Samples\06.event-hub-binding.json">
