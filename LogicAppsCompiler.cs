@@ -304,12 +304,16 @@ namespace LogicApps
                 {
                     case ActionType.Inline:
                         method = CreateStaticMethod("JToken", sanitizedName)
+                                    .AddAttributeLists(
+                                        SF.AttributeList(SF.SingletonSeparatedList(SF.Attribute(SF.IdentifierName("Deterministic")))))
                                     .AddParameterListParameters(
                                         CreateParameter("IDurableOrchestrationContext", "context"));
                         expressionContext.IsOrchestration = true;
                         break;
                     case ActionType.Http:
                         method = CreateStaticMethod("async Task<JToken>", sanitizedName)
+                                    .AddAttributeLists(
+                                        SF.AttributeList(SF.SingletonSeparatedList(SF.Attribute(SF.IdentifierName("Deterministic")))))
                                     .AddParameterListParameters(
                                         CreateParameter("IDurableOrchestrationContext", "context"));
                         expressionContext.IsOrchestration = true;
