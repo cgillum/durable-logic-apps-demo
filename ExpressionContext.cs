@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace LogicApps
 {
@@ -19,6 +20,16 @@ namespace LogicApps
 
         public string AddParameter(string type, string name)
         {
+            if (string.IsNullOrEmpty(type))
+            {
+                throw new ArgumentNullException(nameof(type));
+            }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                throw new ArgumentNullException(nameof(name));
+            }
+
             name = Utils.SanitizeName(name);
 
             List<(string type, string name)> paramList;

@@ -1,4 +1,4 @@
-namespace LogicApps.LogicApps.CodeGenerators
+namespace LogicApps.CodeGenerators
 {
     using System.Collections.Generic;
     using System.Linq;
