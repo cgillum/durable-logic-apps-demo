@@ -1,11 +1,11 @@
-namespace LogicApps.LogicApps.CodeGenerators
+namespace LogicApps.CodeGenerators
 {
     using Newtonsoft.Json.Linq;
     using System.Collections.Generic;
 
     class ComposeCodeGenerator : ActionCodeGenerator
     {
-        public override ActionType ActionType => ActionType.Inline;
+        public override ActionType ActionType => ActionType.Method;
 
         protected override IEnumerable<string> OnGenerateStatements(JToken input, ExpressionContext context)
         {

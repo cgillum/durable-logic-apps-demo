@@ -1,7 +1,7 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace LogicApps.LogicApps.CodeGenerators
+namespace LogicApps.CodeGenerators
 {
     internal static class Utils
     {

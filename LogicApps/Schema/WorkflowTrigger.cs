@@ -13,5 +13,8 @@ namespace LogicApps.Schema
 
         [JsonProperty("type")]
         public WorkflowActionType Type { get; private set; }
+
+        [JsonProperty("kind")]
+        public WorkflowActionKind Kind { get; private set; }
     }
 }

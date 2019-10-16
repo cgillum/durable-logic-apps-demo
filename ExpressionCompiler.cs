@@ -144,6 +144,12 @@
                 string parameterName = match.Groups[1].Value;
                 return context.AddParameter("JToken", Utils.GetWorkflowParameterVariableName(parameterName));
             }
+            else if (expression.StartsWith("variables("))
+            {
+                match = Regex.Match(expression, @"variables\('(\w+)'\)");
+                string variableName = match.Groups[1].Value;
+                return context.AddParameter("JToken", variableName);
+            }
             else if (expression.StartsWith("triggerBody("))
             {
                 // TODO: This doesn't currently work with expressions like "@triggerBody().name"

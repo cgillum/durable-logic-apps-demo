@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using LogicApps.LogicApps.CodeGenerators;
+using LogicApps.CodeGenerators;
 using LogicApps.Schema;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -18,10 +18,11 @@ namespace LogicApps
     {
         private static readonly IReadOnlyDictionary<WorkflowActionType, ActionCodeGenerator> ActionCodeGenerators = new Dictionary<WorkflowActionType, ActionCodeGenerator>()
         {
+            { WorkflowActionType.ApiConnection, new ApiConnectionCodeGenerator() },
+            { WorkflowActionType.Binding, new BindingCodeGenerator() },
             { WorkflowActionType.Compose, new ComposeCodeGenerator() },
             { WorkflowActionType.Http, new HttpCodeGenerator() },
-            { WorkflowActionType.ApiConnection, new ApiConnectionCodeGenerator() },
-            { WorkflowActionType.Binding, new BindingCodeGenerator() }
+            { WorkflowActionType.InitializeVariable, new InitializeVariableCodeGenerator() },
         };
 
         public static ProjectArtifacts Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
@@ -39,6 +40,7 @@ namespace LogicApps
                 SF.UsingDirective(SF.IdentifierName("System.Threading.Tasks")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.DurableTask")),
+                SF.UsingDirective(SF.IdentifierName("Microsoft.Azure.WebJobs.Extensions.Http")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Extensions.Logging")),
                 SF.UsingDirective(SF.IdentifierName("Microsoft.Extensions.Primitives")),
                 SF.UsingDirective(SF.IdentifierName("Newtonsoft.Json")),
@@ -149,6 +151,29 @@ namespace LogicApps
                             SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
                         );
                     break;
+                case WorkflowActionType.Request:
+                    if (trigger.Kind != WorkflowActionKind.Http)
+                    {
+                        throw new NotSupportedException($"{trigger.Kind} is not a supported request type.");
+                    }
+
+                    function = CreateFunction("async Task", $"{functionName}Trigger", functionName)
+                        .AddParameterListParameters(
+                            CreateBindingParameter(
+                                "HttpTrigger",
+                                "dynamic", // Can't use JToken directly, so we use `dynamic`. Considered `object` but that can't be cast to JToken.
+                                "input",
+                                "AuthorizationLevel.Anonymous, \"POST\""),
+                            CreateBindingParameter(
+                                "DurableClient",
+                                "IDurableClient",
+                                "client"),
+                            CreateParameter("ILogger", "log"))
+                        .AddBodyStatements(
+                            SF.ParseStatement($"string instanceId = await client.StartNewAsync(\"{workflowName}\", (object)input);\n"),
+                            SF.ParseStatement($@"log.LogInformation($""Started workflow '{functionName}', instance ID = {{instanceId}}."");")
+                        );
+                    break;
                 default:
                     throw new ArgumentException($"Trigger type '{trigger.Type}' is not supported.");
             }
@@ -252,6 +277,13 @@ namespace LogicApps
                 switch (generator.ActionType)
                 {
                     case ActionType.Inline:
+                        // Inline actions are actions with one or more statements in the main function body
+                        foreach (string inlineStatement in generator.GenerateStatements(action.Name, action.Inputs, context))
+                        {
+                            yield return SF.ParseStatement(inlineStatement).WithTrailingTrivia(SF.CarriageReturnLineFeed);
+                        }
+                        continue;
+                    case ActionType.Method:
                         parameterList.AddFirst("context");
                         paramListString = string.Join(", ", parameterList);
                         statement = SF.ParseStatement($@"JToken {resultVariable} = {sanitizedName}({paramListString});");
@@ -303,6 +335,9 @@ namespace LogicApps
                 switch (generator.ActionType)
                 {
                     case ActionType.Inline:
+                        // Nothing to generate for inline code
+                        continue;
+                    case ActionType.Method:
                         method = CreateStaticMethod("JToken", sanitizedName)
                                     .AddAttributeLists(
                                         SF.AttributeList(SF.SingletonSeparatedList(SF.Attribute(SF.IdentifierName("Deterministic")))))

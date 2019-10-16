@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace LogicApps.LogicApps.CodeGenerators
+namespace LogicApps.CodeGenerators
 {
     /// <summary>
     /// The different types of actions that are supported by the code generator.
@@ -10,9 +10,14 @@ namespace LogicApps.LogicApps.CodeGenerators
     internal enum ActionType
     {
         /// <summary>
-        /// Inline actions can be generated as direct function calls.
+        /// Inline actions are implemented directly in the function body.
         /// </summary>
         Inline,
+
+        /// <summary>
+        /// Method actions can be generated as direct function calls.
+        /// </summary>
+        Method,
 
         /// <summary>
         /// The action must be wrapped in a durable activity function.
