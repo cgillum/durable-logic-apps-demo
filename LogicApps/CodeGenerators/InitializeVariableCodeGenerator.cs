@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace LogicApps.CodeGenerators
@@ -13,9 +14,27 @@ namespace LogicApps.CodeGenerators
             JArray variables = (JArray)inputObject["variables"];
             JObject variable = (JObject)variables[0]; // The schema says there is always exactly one element
             string name = (string)variable["name"];
+            string type = (string)variable["type"];
+            JToken value = variable["value"];
 
-            // REVIEW: Do we need to consider the "type" field?
-            yield return $"JToken {name} = {variable["value"].ToString()};";
+            string expression;
+            switch (type.ToLowerInvariant())
+            {
+                case "string":
+                    expression = "\"" + value + "\"";
+                    break;
+                case "array":
+                    expression = $"JArray.Parse(@\"{value.ToString(Formatting.None).Replace("\"", "\"\"")}\")";
+                    break;
+                case "boolean":
+                    expression = value.ToString().ToLowerInvariant();
+                    break;
+                default:
+                    expression = value.ToString();
+                    break;
+            }
+
+            yield return $"JToken {name} = {expression};";
         }
     }
 }
