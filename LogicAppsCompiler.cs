@@ -23,6 +23,7 @@ namespace LogicApps
             { WorkflowActionType.Compose, new ComposeCodeGenerator() },
             { WorkflowActionType.Http, new HttpCodeGenerator() },
             { WorkflowActionType.InitializeVariable, new InitializeVariableCodeGenerator() },
+            { WorkflowActionType.IncrementVariable, new IncrementVariableCodeGenerator() },
         };
 
         public static ProjectArtifacts Compile(string workflowName, WorkflowDocument doc, TextWriter codeWriter)
@@ -195,12 +196,12 @@ namespace LogicApps
                 case "queueTrigger":
                     attributeName = "QueueTrigger";
                     attributeParameters = $@"""{inputs["queueName"]}"", Connection = ""{inputs["connection"]}""";
-                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.Storage"] = "3.0.8";
+                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.Storage"] = "3.0.*";
                     break;
                 case "eventHubTrigger":
                     attributeName = "EventHubTrigger";
                     attributeParameters = $@"""{inputs["eventHubName"]}"", Connection = ""{inputs["connection"]}""";
-                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.3";
+                    artifacts.Extensions["Microsoft.Azure.WebJobs.Extensions.EventHubs"] = "3.0.*";
                     break;
                 case "blobTrigger":        // TODO
                 case "serviceBusTrigger":  // TODO
@@ -326,7 +327,12 @@ namespace LogicApps
         {
             foreach ((string actionName, WorkflowAction action) in sortedActions)
             {
-                ActionCodeGenerator generator = ActionCodeGenerators[action.Type];
+                ActionCodeGenerator generator;
+                if (!ActionCodeGenerators.TryGetValue(action.Type, out generator))
+                {
+                    throw new NotSupportedException($"Don't know how to generate code for '{action.Type}' actions.");
+                }
+
                 string sanitizedName = Utils.SanitizeName(actionName);
                 expressionContext.CurrentActionName = actionName;
 

@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using Newtonsoft.Json;
+using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 
 namespace LogicApps.CodeGenerators
@@ -18,23 +17,40 @@ namespace LogicApps.CodeGenerators
             JToken value = variable["value"];
 
             string expression;
+            string csharpType;
             switch (type.ToLowerInvariant())
             {
                 case "string":
+                    csharpType = "string";
                     expression = "\"" + value + "\"";
                     break;
                 case "array":
-                    expression = $"JArray.Parse(@\"{value.ToString(Formatting.None).Replace("\"", "\"\"")}\")";
+                    csharpType = "JArray";
+                    expression = $"JArray.Parse({ExpressionCompiler.ConvertJTokenToStringInterpolation(value, context)});";
+                    break;
+                case "object":
+                    csharpType = "JObject";
+                    expression = $"JObject.Parse({ExpressionCompiler.ConvertJTokenToStringInterpolation(value, context)});";
                     break;
                 case "boolean":
+                    csharpType = "bool";
                     expression = value.ToString().ToLowerInvariant();
                     break;
+                case "integer":
+                    csharpType = "int";
+                    expression = value.ToString();
+                    break;
+                case "float":
+                    csharpType = "double";
+                    expression = value.ToString();
+                    break;
                 default:
+                    csharpType = "JToken";
                     expression = value.ToString();
                     break;
             }
 
-            yield return $"JToken {name} = {expression};";
+            yield return $"{csharpType} {name} = {expression};";
         }
     }
 }

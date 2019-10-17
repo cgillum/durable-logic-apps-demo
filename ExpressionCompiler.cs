@@ -148,6 +148,8 @@
             {
                 match = Regex.Match(expression, @"variables\('(\w+)'\)");
                 string variableName = match.Groups[1].Value;
+                
+                // CONSIDER: Use the actual variable type
                 return context.AddParameter("JToken", variableName);
             }
             else if (expression.StartsWith("triggerBody("))

@@ -35,9 +35,7 @@ namespace LogicApps.Schema
             return item =>
             {
                 var dependencies = getDependencies(item);
-                return dependencies != null
-                    ? dependencies.Select(key => map[key])
-                    : null;
+                return dependencies?.Select(key => map[key]);
             };
         }
 
